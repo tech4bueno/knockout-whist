@@ -162,7 +162,9 @@
         }
 
         function connectWebSocket(message) {
-            ws = new WebSocket('ws://localhost:8765');
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsHost = window.location.host;
+            const ws = new WebSocket(`${wsProtocol}//${wsHost}`);
             
             ws.onopen = () => {
                 ws.send(JSON.stringify(message));
