@@ -5,7 +5,7 @@ RUN pip install -e .
 ENV PYTHONPATH="/app/src:${PYTHONPATH}" \
     PYTHONUNBUFFERED=1
 EXPOSE 8000 8765
-ENV WS_HOST="0.0.0.0" \
+ENV WS_HOST="localhost" \
     WS_PORT=8765 \
     HTTP_HOST="0.0.0.0" \
     HTTP_PORT=8000
