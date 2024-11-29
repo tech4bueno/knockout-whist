@@ -10,21 +10,21 @@ from ..server.game_server import GameServer
 
 logger = logging.getLogger(__name__)
 
+
 class CombinedServer:
     def __init__(self):
         self.app = web.Application()
         self.game_server = GameServer()
 
-        # Setup routes
-        self.app.router.add_get('/ws', self.websocket_handler)
-        self.app.router.add_get('/', self.index_handler)
-        self.app.router.add_static('/', path=self.get_static_dir())
+        self.app.router.add_get("/ws", self.websocket_handler)
+        self.app.router.add_get("/", self.index_handler)
+        self.app.router.add_static("/", path=self.get_static_dir())
 
     def get_static_dir(self):
         return os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
     async def index_handler(self, request):
-        return web.FileResponse(os.path.join(self.get_static_dir(), 'index.html'))
+        return web.FileResponse(os.path.join(self.get_static_dir(), "index.html"))
 
     async def websocket_handler(self, request):
         ws = web.WebSocketResponse()
@@ -33,14 +33,15 @@ class CombinedServer:
         logging.debug("New WebSocket connection from %s", request.remote)
 
         try:
-            # Handle the connection until it's closed
             await self.game_server.handle_connection(ws)
         except Exception as e:
-            logging.error("WebSocket error: %s", str(e))
+            raise
+            logging.error("Error: %s", str(e))
         finally:
             logging.debug("WebSocket connection closed")
 
         return ws
+
 
 async def main_async(host: str, port: int) -> None:
     server = CombinedServer()
@@ -51,11 +52,11 @@ async def main_async(host: str, port: int) -> None:
 
     logging.info(f"Server running on http://{host}:{port}")
 
-    # Keep the server running
     try:
-        await asyncio.Future()  # run forever
+        await asyncio.Future()
     finally:
         await runner.cleanup()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Start the Knockout Whist server")
@@ -66,14 +67,14 @@ def main() -> None:
 
     log_level = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     try:
         asyncio.run(main_async(args.host, args.port))
     except KeyboardInterrupt:
         logging.info("Server shutting down")
+
 
 if __name__ == "__main__":
     main()

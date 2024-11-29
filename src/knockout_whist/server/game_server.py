@@ -9,14 +9,17 @@ from ..models.card import Card
 from ..models.player import Player
 from ..models.trick import Trick
 
+
 class GameState:
     WAITING = "waiting"
     CHOOSING_TRUMP = "choosing_trump"
     PLAYING = "playing"
     FINISHED = "finished"
 
+
 class GameError(Exception):
     pass
+
 
 class Game:
     def __init__(self, code: str):
@@ -52,10 +55,9 @@ class Game:
     async def broadcast_game_state(self) -> None:
         """Send current game state to all players."""
         for player in self.players:
-            await player.send_message({
-                "type": "gameState",
-                "state": self.get_game_state(player)
-            })
+            await player.ws.send_json(
+                {"type": "gameState", "state": self.get_game_state(player)}
+            )
 
     async def start_trump_selection(self) -> None:
         """Start the trump selection phase of the round."""
@@ -66,11 +68,13 @@ class Game:
             self.trump_suit = random.choice(["♠", "♥", "♦", "♣"])
             await self.start_round()
         else:
-            await self.broadcast({
-                "type": "trumpSelection",
-                "chooser": self.trump_chooser.name,
-                "gameState": self.get_game_state()
-            })
+            await self.broadcast(
+                {
+                    "type": "trumpSelection",
+                    "chooser": self.trump_chooser.name,
+                    "gameState": self.get_game_state(),
+                }
+            )
 
     async def start_round(self) -> None:
         """Start a new round after trump has been selected."""
@@ -78,10 +82,7 @@ class Game:
         self.current_trick = Trick()
         self.current_player_idx = self.trick_starter_idx
 
-        await self.broadcast({
-            "type": "roundStart",
-            "gameState": self.get_game_state()
-        })
+        await self.broadcast({"type": "roundStart", "gameState": self.get_game_state()})
 
         await self.broadcast_game_state()
 
@@ -104,39 +105,44 @@ class Game:
         card = Card.from_string(card_str)
         self.validate_play(player, card)
 
-        player.hand = [c for c in player.hand if not (c.suit == card.suit and c.rank == card.rank)]
+        player.hand = [
+            c for c in player.hand if not (c.suit == card.suit and c.rank == card.rank)
+        ]
         self.current_trick.add_play(player, card)
 
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
 
-        await self.broadcast({
-            "type": "cardPlayed",
-            "player": player.name,
-            "card": card_str,
-            "nextPlayer": self.current_player.name,
-            "gameState": self.get_game_state()
-        })
+        await self.broadcast(
+            {
+                "type": "cardPlayed",
+                "player": player.name,
+                "card": card_str,
+                "nextPlayer": self.current_player.name,
+                "gameState": self.get_game_state(),
+            }
+        )
 
         if self.current_trick.is_complete(len(self.players)):
             await self.handle_trick_completion()
 
     async def handle_trick_completion(self) -> None:
         """Handle the completion of a trick."""
-        await self.broadcast({
-            "type": "trickComplete",
-            "gameState": self.get_game_state()
-        })
+        await self.broadcast(
+            {"type": "trickComplete", "gameState": self.get_game_state()}
+        )
 
         winner = self.current_trick.determine_winner(self.trump_suit)
         winner.tricks_won += 1
 
         await asyncio.sleep(2)
 
-        await self.broadcast({
-            "type": "trickWinner",
-            "winner": winner.name,
-            "gameState": self.get_game_state()
-        })
+        await self.broadcast(
+            {
+                "type": "trickWinner",
+                "winner": winner.name,
+                "gameState": self.get_game_state(),
+            }
+        )
 
         self.current_player_idx = self.players.index(winner)
         self.trick_starter_idx = self.current_player_idx
@@ -147,10 +153,9 @@ class Game:
         if not any(len(p.hand) > 0 for p in self.players):
             await self.handle_round_end()
         else:
-            await self.broadcast({
-                "type": "nextTrick",
-                "gameState": self.get_game_state()
-            })
+            await self.broadcast(
+                {"type": "nextTrick", "gameState": self.get_game_state()}
+            )
 
     async def handle_round_end(self) -> None:
         """Handle the end of a round, including player elimination."""
@@ -159,11 +164,13 @@ class Game:
         if len(self.players) <= 1 or self.current_round <= 1:
             self.state = GameState.FINISHED
             if self.players:
-                await self.broadcast({
-                    "type": "gameOver",
-                    "winner": self.players[0].name,
-                    "gameState": self.get_game_state()
-                })
+                await self.broadcast(
+                    {
+                        "type": "gameOver",
+                        "winner": self.players[0].name,
+                        "gameState": self.get_game_state(),
+                    }
+                )
             return
 
         self.current_round -= 1
@@ -172,11 +179,13 @@ class Game:
         self.trump_chooser = random.choice(potential_choosers)
         self.trump_suit = None
 
-        await self.broadcast({
-            "type": "roundEnd",
-            "trumpChooser": self.trump_chooser.name,
-            "gameState": self.get_game_state()
-        })
+        await self.broadcast(
+            {
+                "type": "roundEnd",
+                "trumpChooser": self.trump_chooser.name,
+                "gameState": self.get_game_state(),
+            }
+        )
 
         await self.start_trump_selection()
 
@@ -195,7 +204,10 @@ class Game:
             raise GameError("Card not in hand")
 
         if self.current_trick.plays and player.hand:
-            if any(c.suit == self.current_trick.led_suit for c in player.hand) and card.suit != self.current_trick.led_suit:
+            if (
+                any(c.suit == self.current_trick.led_suit for c in player.hand)
+                and card.suit != self.current_trick.led_suit
+            ):
                 raise GameError("Must follow suit")
 
     def get_game_state(self, for_player: Optional[Player] = None) -> dict:
@@ -206,11 +218,12 @@ class Game:
             "trumpSuit": self.trump_suit,
             "currentTrick": [(p.name, str(c)) for p, c in self.current_trick.plays],
             "players": [
-                {"name": p.name, "trickCount": p.tricks_won}
-                for p in self.players
+                {"name": p.name, "trickCount": p.tricks_won} for p in self.players
             ],
             "state": self.state,
-            "currentPlayer": self.current_player.name if self.state == GameState.PLAYING else None,
+            "currentPlayer": (
+                self.current_player.name if self.state == GameState.PLAYING else None
+            ),
             "trumpChooser": self.trump_chooser.name if self.trump_chooser else None,
         }
 
@@ -222,7 +235,8 @@ class Game:
     async def broadcast(self, message: dict) -> None:
         """Broadcast a message to all players."""
         for player in self.players:
-            await player.send_message(message)
+            await player.ws.send_json(message)
+
 
 class GameServer:
     def __init__(self):
@@ -254,7 +268,9 @@ class GameServer:
                             elif data["type"] == "playCard":
                                 await game.play_card(player, data["card"])
                             elif data["type"] == "chooseTrump":
-                                await self.handle_choose_trump(game, player, data["suit"])
+                                await self.handle_choose_trump(
+                                    game, player, data["suit"]
+                                )
                         except GameError as e:
                             await ws.send_json({"type": "error", "message": str(e)})
 
@@ -274,11 +290,13 @@ class GameServer:
         player = Player(ws, data["name"], [])
         game.players.append(player)
 
-        await ws.send_json({
-            "type": "gameCreated",
-            "code": code,
-            "gameState": game.get_game_state(player)
-        })
+        await ws.send_json(
+            {
+                "type": "gameCreated",
+                "code": code,
+                "gameState": game.get_game_state(player),
+            }
+        )
 
     async def handle_join_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = data["code"]
@@ -298,11 +316,13 @@ class GameServer:
         player = Player(ws, data["name"], [])
         game.players.append(player)
 
-        await game.broadcast({
-            "type": "playerJoined",
-            "player": data["name"],
-            "gameState": game.get_game_state()
-        })
+        await game.broadcast(
+            {
+                "type": "playerJoined",
+                "player": data["name"],
+                "gameState": game.get_game_state(),
+            }
+        )
 
     def find_game_for_player(self, ws: web.WebSocketResponse) -> Game:
         for game in self.games.values():
@@ -325,11 +345,13 @@ class GameServer:
             if not game.players:
                 del self.games[game.code]
             else:
-                await game.broadcast({
-                    "type": "playerLeft",
-                    "player": player.name,
-                    "gameState": game.get_game_state()
-                })
+                await game.broadcast(
+                    {
+                        "type": "playerLeft",
+                        "player": player.name,
+                        "gameState": game.get_game_state(),
+                    }
+                )
         except GameError:
             pass
 

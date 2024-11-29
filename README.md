@@ -1,16 +1,25 @@
 # Knockout Whist
 
-A full-stack implementation of Knockout Whist using Python, websockets and plain old javascript.
 
-Try at https://knockout-whist.onrender.com/
+A full-stack implementaiton of Knockout Whist.
 
-## Install
+* Python backend
+* Vanilla JS / Tailwind CSS client
+* Websockets for comms between the two
 
-`pip install knockout-whist`
+Less than 1,000 lines of code in total.
+
+Try it at https://knockout-whist.onrender.com
 
 ## Run
 
-`knockout-whist`
+### With pip
+
+`pip install knockout-whist` and then `knockout-whist`
+
+### With Docker
+
+`docker build -t knockout-whist .` then `docker run -p 8000:8000 knockout-whist`
 
 ## Develop
 

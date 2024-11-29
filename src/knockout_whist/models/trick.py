@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 from .card import Card
 from .player import Player
 
+
 class Trick:
     def __init__(self):
         self.plays: List[Tuple[Player, Card]] = []

@@ -6,6 +6,12 @@
     <title>Knockout Whist</title>
     <script src="tailwind.js"></script>
 <style>
+
+    @keyframes errorAnnouncement {
+        0% { opacity: 0; transform: translateY(-20px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+
     @keyframes cardPlay {
         0% { transform: scale(1); }
         50% { transform: scale(1.1); }
@@ -20,6 +26,10 @@
     @keyframes winnerAnnouncement {
         0% { opacity: 0; transform: translateY(-20px); }
         100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .error-announcement {
+        animation: errorAnnouncement 0.5s ease-out;
     }
 
     .card-played {
@@ -84,8 +94,6 @@
             </div>
         </div>
     </div>
-
-    <p id="errorMessage" class="text-red-500 hidden"></p>
 
     <!-- Game Screen -->
     <div id="gameScreen" class="min-h-screen bg-gray-100 p-2 sm:p-4 hidden">
@@ -170,9 +178,21 @@
         }
 
         function showError(message) {
-            const errorElement = document.getElementById('errorMessage');
-            errorElement.textContent = message;
-            errorElement.classList.remove('hidden');
+            // Remove any existing error messages
+            const existingErrors = document.querySelectorAll('.error-announcement');
+            existingErrors.forEach(error => error.remove());
+            
+            // Show the error message
+            const announcement = document.createElement('div');
+            announcement.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg error-announcement';
+            announcement.textContent = message;
+            document.body.appendChild(announcement);
+            
+            setTimeout(() => {
+                announcement.style.opacity = '0';
+                announcement.style.transition = 'opacity 0.5s ease-out';
+                setTimeout(() => announcement.remove(), 500);
+            }, 3000);
         }
 
         function connectWebSocket(message) {

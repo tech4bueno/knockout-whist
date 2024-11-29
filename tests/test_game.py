@@ -10,9 +10,11 @@ from knockout_whist.models.player import Player
 from knockout_whist.models.trick import Trick
 from knockout_whist.server.game_server import Game, GameState, GameError, GameServer
 
+
 @pytest.fixture
 def game():
     return Game("ABCD")
+
 
 @pytest.fixture
 def websocket():
@@ -23,13 +25,16 @@ def websocket():
     ws.closed = False
     return ws
 
+
 @pytest.fixture
 def player(websocket):
     return Player(websocket, "TestPlayer", [])
 
+
 @pytest.fixture
 def game_server():
     return GameServer()
+
 
 class TestGame:
     @pytest.mark.asyncio
@@ -114,7 +119,9 @@ class TestGame:
 
     @pytest.mark.asyncio
     async def test_validate_play_must_follow_suit(self, game):
-        player = Player(AsyncMock(spec=WebSocketResponse), "Player1", [Card("♠", 10), Card("♥", 9)])
+        player = Player(
+            AsyncMock(spec=WebSocketResponse), "Player1", [Card("♠", 10), Card("♥", 9)]
+        )
         game.players.append(player)
         game.state = GameState.PLAYING
         game.current_trick.add_play(Mock(name="Previous Player"), Card("♠", 7))
@@ -137,6 +144,7 @@ class TestGame:
         # Verify round end messages were sent
         player1.ws.send_json.assert_called()
         player2.ws.send_json.assert_called()
+
 
 class TestGameServer:
     @pytest.mark.asyncio
@@ -183,6 +191,7 @@ class TestGameServer:
         assert sent_data["type"] == "error"
         assert sent_data["message"] == "Game not found"
 
+
 class TestIntegration:
     @pytest.mark.asyncio
     async def test_full_game_flow(self, game_server):
@@ -195,7 +204,9 @@ class TestIntegration:
         # Join game
         ws2 = AsyncMock(spec=WebSocketResponse)
         ws2.send_json = AsyncMock()
-        await game_server.handle_join_game(ws2, {"type": "join", "code": game_code, "name": "Player2"})
+        await game_server.handle_join_game(
+            ws2, {"type": "join", "code": game_code, "name": "Player2"}
+        )
 
         game = game_server.games[game_code]
 
