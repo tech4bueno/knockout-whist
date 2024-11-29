@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Knockout Whist</title>
+    <script src="tailwind.js"></script>
+<style>
+    @keyframes cardPlay {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
+
+    @keyframes trickComplete {
+        0% { background-color: transparent; }
+        100% { background-color: rgba(59, 130, 246, 0.1); }
+    }
+
+    @keyframes winnerAnnouncement {
+        0% { opacity: 0; transform: translateY(-20px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-played {
+        animation: cardPlay 0.3s ease-out;
+    }
+
+    .trick-complete {
+        animation: trickComplete 0.5s ease-out forwards;
+    }
+
+    .winner-announcement {
+        animation: winnerAnnouncement 0.5s ease-out;
+    }
+</style>
+</head>
+<body class="min-h-screen bg-gray-100">
+    <!-- Login Screen -->
+    <div id="loginScreen" class="flex min-h-screen items-center justify-center bg-gray-100">
+        <div class="w-96 bg-white rounded-lg shadow-lg p-6">
+            <div class="mb-4">
+                <h2 class="text-xl font-bold">Knockout Whist</h2>
+            </div>
+            <div class="space-y-4">
+                <input
+                    type="text"
+                    id="playerNameInput"
+                    placeholder="Your Name"
+                    class="w-full px-3 py-2 border rounded-md"
+                >
+                <input
+                    type="text"
+                    id="gameCodeInput"
+                    placeholder="Game Code (to join)"
+                    class="w-full px-3 py-2 border rounded-md"
+                >
+                <div class="flex space-x-2">
+                    <button 
+                        onclick="createGame()"
+                        class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                    >
+                        Create Game
+                    </button>
+                    <button 
+                        onclick="joinGame()"
+                        class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                    >
+                        Join Game
+                    </button>
+                </div>
+                <p id="errorMessage" class="text-red-500 hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="gameScreen" class="min-h-screen bg-gray-100 p-4 hidden">
+        <div class="bg-white rounded-lg shadow-lg">
+            <div class="p-6 border-b">
+                <h2 class="text-xl font-bold">
+                    Game Code: <span id="gameCodeDisplay"></span> - 
+                    Round <span id="currentRound"></span>
+                </h2>
+            </div>
+            <div class="p-6 space-y-4">
+                <!-- Game Status -->
+                <div>
+                    <h3 class="text-lg font-semibold">
+                        Trumps: <span id="trumpSuit"></span>
+                    </h3>
+                    <p id="trumpChooserMessage" class="text-sm text-gray-600 hidden"></p>
+                </div>
+
+                <!-- Players -->
+                <div id="playersGrid" class="grid grid-cols-2 gap-4"></div>
+
+                <!-- Current Hand -->
+                <div id="currentTrickContainer" class="border p-4 rounded hidden">
+                    <h3 class="font-semibold">Current Hand:</h3>
+                    <div id="currentTrick" class="flex justify-center space-x-4"></div>
+                </div>
+
+                <!-- Player's Hand -->
+                <div id="playerHand" class="hidden">
+                    <h3 class="font-semibold">Your Hand:</h3>
+                    <div id="handCards" class="flex flex-wrap gap-4 justify-center"></div>
+                </div>
+
+                <button 
+                    id="startGameButton" 
+                    onclick="startGame()"
+                    class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 hidden"
+                >
+                    Start Game
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trump Selection Dialog -->
+    <div id="trumpDialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-lg p-6 max-w-md w-full">
+            <h2 class="text-xl font-bold mb-4">Choose Trump Suit</h2>
+            <div class="flex space-x-4 justify-center">
+                <button onclick="chooseTrump('♠')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded">♠</button>
+                <button onclick="chooseTrump('♥')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded text-red-500">♥</button>
+                <button onclick="chooseTrump('♦')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded text-red-500">♦</button>
+                <button onclick="chooseTrump('♣')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded">♣</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let gameState = null;
+        let playerName = '';
+        let hand = [];
+
+        function getCardColor(card) {
+            const suit = card.slice(-1);
+            return ['♥', '♦'].includes(suit) ? 'text-red-500' : 'text-black';
+        }
+
+        function isCardPlayable(card) {
+            if (!gameState?.currentTrick || gameState.currentTrick.length === 0) return true;
+            
+            const suit = card.slice(-1);
+            const [, firstCard] = gameState.currentTrick[0];
+            const leadSuit = firstCard.slice(-1);
+            
+            const hasLeadSuit = hand.some(c => c.slice(-1) === leadSuit);
+            if (hasLeadSuit) {
+                return (suit === leadSuit);
+            }
+            return true;
+        }
+
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = message;
+            errorElement.classList.remove('hidden');
+        }
+
+        function connectWebSocket(message) {
+            ws = new WebSocket('ws://localhost:8765');
+            
+            ws.onopen = () => {
+                ws.send(JSON.stringify(message));
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                showError('Connection error. Please try again.');
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket connection closed');
+                showError('Connection closed. Please refresh to reconnect.');
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            console.log('Received message:', data); // Debug log
+            
+            switch (data.type) {
+                case 'gameCreated':
+                    gameState = data.gameState;
+                    hand = data.gameState.hand || [];
+                    showGameScreen();
+                    updateGameState(data.gameState);
+                    break;
+                
+                case 'gameState':
+                    gameState = data.state;
+                    hand = data.state.hand || [];
+                    showGameScreen();
+                    updateGameState(data.state);
+                    break;
+                
+                case 'playerJoined':
+                    gameState = data.gameState;
+                    showGameScreen();
+                    updateGameState(data.gameState);
+                    break;
+
+                case 'cardPlayed':
+                    if (data.player === playerName) {
+                        hand = hand.filter(card => card !== data.card);
+                    }
+                    gameState = data.gameState;
+                    gameState.currentPlayer = data.nextPlayer;
+                    gameState.lastPlayedCard = data.card;
+                    gameState.lastPlayer = data.player;
+                    updateGameState(data.gameState);
+                    break;
+
+                case 'trickComplete':
+                    gameState = data.gameState;
+                    delete gameState.lastPlayedCard;
+                    delete gameState.lastPlayer;
+                    updateGameState(data.gameState);
+                    showTrickComplete();
+                    break;
+
+                case 'trickWinner':
+                    gameState = data.gameState;
+                    gameState.currentPlayer = data.nextPlayer;
+                    showTrickWinner(data.winner);
+                    break;
+
+                case 'nextTrick':
+                    gameState = data.gameState;
+                    clearTrickWithAnimation(() => {
+                        updateGameState(data.gameState);
+                    });
+                    break;
+               
+                case 'roundEnd':
+                    gameState = data.gameState;
+                    updateGameState(data.gameState);
+                    if (data.trumpChooser === playerName) {
+                        showTrumpDialog();
+                    }
+                    break;
+                
+                case 'roundStart':
+                    gameState = data.gameState;
+                    hand = data.gameState.hand || [];
+                    hideTrumpDialog();
+                    updateGameState(data.gameState);
+                    break;
+                
+                case 'error':
+                    showError(data.message);
+                    break;
+                
+                case 'eliminated':
+                    showError('You have been eliminated!');
+                    break;
+                
+                case 'playerLeft':
+                    gameState = data.gameState;
+                    updateGameState(data.gameState);
+                    break;
+                
+                case 'gameOver':
+                    gameState = data.gameState;
+                    updateGameState(data.gameState);
+                    showError(`Game Over! Winner: ${data.winner}`);
+                    break;
+            }
+        }
+
+        function createGame() {
+            playerName = document.getElementById('playerNameInput').value;
+            if (!playerName) {
+                showError('Please enter your name');
+                return;
+            }
+            connectWebSocket({
+                type: 'create',
+                name: playerName
+            });
+        }
+
+        function joinGame() {
+            playerName = document.getElementById('playerNameInput').value;
+            const gameCode = document.getElementById('gameCodeInput').value;
+            if (!playerName || !gameCode) {
+                showError('Please enter your name and game code');
+                return;
+            }
+            connectWebSocket({
+                type: 'join',
+                name: playerName,
+                code: gameCode.toUpperCase()
+            });
+        }
+
+        function startGame() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'startGame' }));
+            } else {
+                showError('Connection lost. Please refresh to reconnect.');
+            }
+        }
+
+        function animateCardPlay(card, playerName) {
+            const cardDiv = document.createElement('div');
+            cardDiv.className = `w-24 h-36 text-4xl flex items-center justify-center card-played ${getCardColor(card)} border rounded`;
+            cardDiv.innerHTML = card;
+            
+            const playerDiv = document.createElement('div');
+            playerDiv.className = 'mt-2 text-center';
+            playerDiv.textContent = playerName;
+            
+            const container = document.createElement('div');
+            container.className = 'text-center';
+            container.appendChild(cardDiv);
+            container.appendChild(playerDiv);
+            
+            document.getElementById('currentTrick').appendChild(container);
+        }
+
+        function showTrickComplete() {
+            const trickContainer = document.getElementById('currentTrickContainer');
+            trickContainer.classList.add('trick-complete');
+        }
+
+        function showTrickWinner(winner) {
+            const announcement = document.createElement('div');
+            announcement.className = 'fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg winner-announcement';
+            announcement.textContent = `${winner} wins the trick!`;
+            document.body.appendChild(announcement);
+            
+            setTimeout(() => {
+                announcement.style.opacity = '0';
+                announcement.style.transition = 'opacity 0.5s ease-out';
+                setTimeout(() => announcement.remove(), 500);
+            }, 1500);
+        }
+
+        function clearTrickWithAnimation(callback) {
+            const trickContainer = document.getElementById('currentTrickContainer');
+            trickContainer.style.opacity = '0';
+            trickContainer.style.transition = 'opacity 0.5s ease-out';
+            
+            setTimeout(() => {
+                trickContainer.innerHTML = '<div id="currentTrick" class="flex justify-center space-x-4"></div>';
+                trickContainer.style.opacity = '1';
+                trickContainer.classList.remove('trick-complete');
+                if (callback) callback();
+            }, 500);
+        }
+
+        // Update the card playing function to include animation
+        function playCard(card) {
+            if (ws && ws.readyState === WebSocket.OPEN && 
+                gameState?.currentPlayer === playerName && 
+                isCardPlayable(card)) {
+                
+                const cardElement = event.currentTarget;
+                cardElement.classList.add('card-played');
+                
+                setTimeout(() => {
+                    ws.send(JSON.stringify({
+                        type: 'playCard',
+                        card
+                    }));
+                }, 300); // Wait for animation to complete
+            }
+        }
+
+        function chooseTrump(suit) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'chooseTrump',
+                    suit
+                }));
+                hideTrumpDialog();
+            }
+        }
+
+        function showGameScreen() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('gameScreen').classList.remove('hidden');
+        }
+
+        function showTrumpDialog() {
+            document.getElementById('trumpDialog').classList.remove('hidden');
+        }
+
+        function hideTrumpDialog() {
+            document.getElementById('trumpDialog').classList.add('hidden');
+        }
+
+        function updateGameState(state) {
+            
+            if (!state) {
+                console.error('Invalid game state');
+                return;
+            }
+
+            // Update game info
+            document.getElementById('gameCodeDisplay').textContent = state.code || '';
+            document.getElementById('currentRound').textContent = state.currentRound || '';
+            document.getElementById('trumpSuit').textContent = state.trumpSuit || 'Not chosen';
+            document.getElementById('trumpSuit').className = getCardColor(state.trumpSuit || '♠');
+
+            // Update players
+            const playersGrid = document.getElementById('playersGrid');
+            playersGrid.innerHTML = '';
+            if (state.players && Array.isArray(state.players)) {
+                state.players.forEach(player => {
+                    const playerDiv = document.createElement('div');
+                    playerDiv.className = `p-2 rounded ${
+                        state.currentPlayer === player.name ? 'bg-blue-100' : 'bg-gray-100'
+                    }`;
+                    playerDiv.innerHTML = `
+                        <p class="font-semibold">${player.name}</p>
+                        <p>Tricks: ${player.trickCount}</p>
+                        ${player.hasDogLife ? '<p class="text-red-500">Dog\'s Life!</p>' : ''}
+                    `;
+                    playersGrid.appendChild(playerDiv);
+                });
+            }
+
+            // Update current trick
+            const trickContainer = document.getElementById('currentTrickContainer');
+            const trickDiv = document.getElementById('currentTrick');
+            if (state.currentTrick && state.currentTrick.length > 0) {
+                trickContainer.classList.remove('hidden');
+                trickDiv.innerHTML = '';
+                state.currentTrick.forEach(([player, card]) => {
+                    const cardDiv = document.createElement('div');
+                    cardDiv.className = 'text-center';
+                    
+                    // Add animation class if this is the last played card
+                    const isLastPlayed = state.lastPlayedCard === card && state.lastPlayer === player;
+                    const cardElement = document.createElement('div');
+                    cardElement.className = `w-24 h-36 text-4xl flex items-center justify-center ${getCardColor(card)} border rounded
+                        ${isLastPlayed ? 'card-played' : ''}`;
+                    cardElement.textContent = card;
+                    
+                    cardDiv.appendChild(cardElement);
+                    cardDiv.innerHTML += `<div class="mt-2">${player}</div>`;
+                    trickDiv.appendChild(cardDiv);
+                });
+            } else {
+                trickContainer.classList.add('hidden');
+            }
+
+            // Update player's hand
+            const handContainer = document.getElementById('playerHand');
+            const handDiv = document.getElementById('handCards');
+            if (hand && hand.length > 0) {
+                handContainer.classList.remove('hidden');
+                handDiv.innerHTML = '';
+                hand.forEach(card => {
+                    const playable = isCardPlayable(card);
+                    const cardButton = document.createElement('button');
+                    cardButton.className = `w-24 h-36 text-4xl flex items-center justify-center ${getCardColor(card)} border rounded
+                        ${!playable ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 transition-transform'}`;
+                    cardButton.textContent = card;
+                    if (playable) {
+                        cardButton.onclick = () => playCard(card);
+                    }
+                    cardButton.disabled = state.currentPlayer !== playerName || !playable;
+                    handDiv.appendChild(cardButton);
+                });
+            } else {
+                handContainer.classList.add('hidden');
+            }
+
+            // Show/hide start game button
+            const startButton = document.getElementById('startGameButton');
+            if (state.state === 'waiting') {
+                startButton.classList.remove('hidden');
+            } else {
+                startButton.classList.add('hidden');
+            }
+        }
+
+        // Clean up WebSocket on page unload
+        window.onbeforeunload = () => {
+            if (ws) {
+                ws.close();
+            }
+        };
+    </script>
+</body>
+</html>
