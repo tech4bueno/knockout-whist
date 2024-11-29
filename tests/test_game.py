@@ -2,7 +2,8 @@ import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock
 
-import websockets
+from aiohttp import WSMsgType
+from aiohttp.web import WebSocketResponse
 
 from knockout_whist.models.card import Card
 from knockout_whist.models.player import Player
@@ -14,9 +15,17 @@ def game():
     return Game("ABCD")
 
 @pytest.fixture
-def player():
-    ws = AsyncMock(spec=websockets.WebSocketServerProtocol)
-    return Player(ws, "TestPlayer", [])
+def websocket():
+    ws = AsyncMock(spec=WebSocketResponse)
+    # Add specific aiohttp WebSocket methods
+    ws.send_json = AsyncMock()
+    ws.close = AsyncMock()
+    ws.closed = False
+    return ws
+
+@pytest.fixture
+def player(websocket):
+    return Player(websocket, "TestPlayer", [])
 
 @pytest.fixture
 def game_server():
@@ -45,6 +54,7 @@ class TestGame:
         game.players.append(player)
         await game.deal_cards()
         assert len(player.hand) == game.current_round
+        player.ws.send_json.assert_called()  # Verify json was sent instead of raw message
 
     @pytest.mark.asyncio
     async def test_trump_selection_first_round(self, game, player):
@@ -52,6 +62,7 @@ class TestGame:
         await game.start_trump_selection()
         assert game.trump_suit in ["♠", "♥", "♦", "♣"]
         assert game.state == GameState.PLAYING
+        player.ws.send_json.assert_called()
 
     @pytest.mark.asyncio
     async def test_trump_selection_later_rounds(self, game, player):
@@ -61,6 +72,7 @@ class TestGame:
         await game.start_trump_selection()
         assert game.state == GameState.CHOOSING_TRUMP
         assert game.trump_suit is None
+        player.ws.send_json.assert_called()
 
     @pytest.mark.asyncio
     async def test_handle_trump_selection(self, game, player):
@@ -70,6 +82,7 @@ class TestGame:
         await game.handle_trump_selection(player, "♠")
         assert game.trump_suit == "♠"
         assert game.state == GameState.PLAYING
+        player.ws.send_json.assert_called()
 
     @pytest.mark.asyncio
     async def test_invalid_trump_selection(self, game, player):
@@ -86,11 +99,12 @@ class TestGame:
         player.hand = [Card("♠", 10)]
         await game.play_card(player, "10♠")
         assert len(player.hand) == 0
+        player.ws.send_json.assert_called()
 
     @pytest.mark.asyncio
     async def test_validate_play_wrong_turn(self, game):
-        player1 = Player(AsyncMock(), "Player1", [Card("♠", 10)])
-        player2 = Player(AsyncMock(), "Player2", [Card("♠", 9)])
+        player1 = Player(AsyncMock(spec=WebSocketResponse), "Player1", [Card("♠", 10)])
+        player2 = Player(AsyncMock(spec=WebSocketResponse), "Player2", [Card("♠", 9)])
         game.players.extend([player1, player2])
         game.state = GameState.PLAYING
         game.current_player_idx = 1  # Player2's turn
@@ -100,7 +114,7 @@ class TestGame:
 
     @pytest.mark.asyncio
     async def test_validate_play_must_follow_suit(self, game):
-        player = Player(AsyncMock(), "Player1", [Card("♠", 10), Card("♥", 9)])
+        player = Player(AsyncMock(spec=WebSocketResponse), "Player1", [Card("♠", 10), Card("♥", 9)])
         game.players.append(player)
         game.state = GameState.PLAYING
         game.current_trick.add_play(Mock(name="Previous Player"), Card("♠", 7))
@@ -110,8 +124,8 @@ class TestGame:
 
     @pytest.mark.asyncio
     async def test_handle_round_end(self, game):
-        player1 = Player(AsyncMock(), "Player1", [])
-        player2 = Player(AsyncMock(), "Player2", [])
+        player1 = Player(AsyncMock(spec=WebSocketResponse), "Player1", [])
+        player2 = Player(AsyncMock(spec=WebSocketResponse), "Player2", [])
         game.players.extend([player1, player2])
         player1.tricks_won = 2
         player2.tricks_won = 1
@@ -120,6 +134,9 @@ class TestGame:
         await game.handle_round_end()
         assert game.current_round == initial_round - 1
         assert game.trump_chooser == player1
+        # Verify round end messages were sent
+        player1.ws.send_json.assert_called()
+        player2.ws.send_json.assert_called()
 
 class TestGameServer:
     @pytest.mark.asyncio
@@ -129,52 +146,55 @@ class TestGameServer:
         assert code.isupper()
 
     @pytest.mark.asyncio
-    async def test_handle_create_game(self, game_server):
-        ws = AsyncMock()
+    async def test_handle_create_game(self, game_server, websocket):
         data = {"type": "create", "name": "TestPlayer"}
-        await game_server.handle_create_game(ws, data)
+        await game_server.handle_create_game(websocket, data)
         assert len(game_server.games) == 1
         game = next(iter(game_server.games.values()))
         assert len(game.players) == 1
         assert game.players[0].name == "TestPlayer"
+        websocket.send_json.assert_called()
 
     @pytest.mark.asyncio
-    async def test_handle_join_game(self, game_server):
+    async def test_handle_join_game(self, game_server, websocket):
         # First create a game
-        ws1 = AsyncMock()
+        ws1 = AsyncMock(spec=WebSocketResponse)
+        ws1.send_json = AsyncMock()
         create_data = {"type": "create", "name": "Player1"}
         await game_server.handle_create_game(ws1, create_data)
         game_code = next(iter(game_server.games.keys()))
 
         # Then join it
-        ws2 = AsyncMock()
+        ws2 = websocket
         join_data = {"type": "join", "code": game_code, "name": "Player2"}
         await game_server.handle_join_game(ws2, join_data)
 
         game = game_server.games[game_code]
         assert len(game.players) == 2
         assert game.players[1].name == "Player2"
+        ws2.send_json.assert_called()
 
     @pytest.mark.asyncio
-    async def test_handle_join_nonexistent_game(self, game_server):
-        ws = AsyncMock()
+    async def test_handle_join_nonexistent_game(self, game_server, websocket):
         data = {"type": "join", "code": "XXXX", "name": "TestPlayer"}
-        await game_server.handle_join_game(ws, data)
-        ws.send.assert_awaited_once()
-        sent_message = ws.send.call_args[0][0]
-        assert '"type": "error"' in sent_message
-        assert '"message": "Game not found"' in sent_message
+        await game_server.handle_join_game(websocket, data)
+        websocket.send_json.assert_called_once()
+        sent_data = websocket.send_json.call_args[0][0]
+        assert sent_data["type"] == "error"
+        assert sent_data["message"] == "Game not found"
 
 class TestIntegration:
     @pytest.mark.asyncio
     async def test_full_game_flow(self, game_server):
         # Create game
-        ws1 = AsyncMock()
+        ws1 = AsyncMock(spec=WebSocketResponse)
+        ws1.send_json = AsyncMock()
         await game_server.handle_create_game(ws1, {"type": "create", "name": "Player1"})
         game_code = next(iter(game_server.games.keys()))
 
         # Join game
-        ws2 = AsyncMock()
+        ws2 = AsyncMock(spec=WebSocketResponse)
+        ws2.send_json = AsyncMock()
         await game_server.handle_join_game(ws2, {"type": "join", "code": game_code, "name": "Player2"})
 
         game = game_server.games[game_code]
@@ -191,8 +211,13 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_game_state_updates(self, game):
-        player1 = Player(AsyncMock(), "Player1", [])
-        player2 = Player(AsyncMock(), "Player2", [])
+        ws1 = AsyncMock(spec=WebSocketResponse)
+        ws2 = AsyncMock(spec=WebSocketResponse)
+        ws1.send_json = AsyncMock()
+        ws2.send_json = AsyncMock()
+
+        player1 = Player(ws1, "Player1", [])
+        player2 = Player(ws2, "Player2", [])
         game.players.extend([player1, player2])
 
         # Test game state for different players
