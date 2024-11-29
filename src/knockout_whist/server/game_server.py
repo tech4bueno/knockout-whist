@@ -338,3 +338,10 @@ class GameServer:
             raise GameError("Need at least 2 players")
 
         await game.start_trump_selection()
+
+    async def handle_choose_trump(self, game: Game, player: Player, suit: str) -> None:
+        if game.state != GameState.CHOOSING_TRUMP:
+            raise GameError("Not in trump choosing phase")
+        if player != game.trump_chooser:
+            raise GameError("Not your turn to choose trump")
+        await game.handle_trump_selection(player, suit)
