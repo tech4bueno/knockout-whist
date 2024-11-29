@@ -181,12 +181,15 @@ class Game:
         await self.start_trump_selection()
 
     def validate_play(self, player: Player, card: Card) -> None:
-        """Validate if a card play is legal."""
+        """Prevent illegal plays."""
         if self.state != GameState.PLAYING:
             raise GameError("Not time to play")
 
         if player != self.current_player:
             raise GameError("Not your turn")
+
+        if any(p == player for p, _ in self.current_trick.plays):
+            raise GameError("Already played this round")
 
         if not any(c.suit == card.suit and c.rank == card.rank for c in player.hand):
             raise GameError("Card not in hand")
