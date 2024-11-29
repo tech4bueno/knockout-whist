@@ -24,15 +24,17 @@ dev = [
 [project.scripts]
 knockout-whist = "knockout_whist.bin.server:main"
 
- [tool.pytest.ini_options]
- addopts = "--cov=knockout_whist --cov-report=term-missing --cov-report=html"
- testpaths = ["tests"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/foo"]
 
- [tool.coverage.run]
- branch = true
- source = ["knockout_whist"]
- omit = [
-     "src/knockout_whist/server/debug_websocket.py",
-     "*/__init__.py",
- ]
+[tool.pytest.ini_options]
+addopts = "--cov=knockout_whist --cov-report=term-missing --cov-report=html"
+testpaths = ["tests"]
 
+[tool.coverage.run]
+branch = true
+source = ["knockout_whist"]
+omit = [
+    "src/knockout_whist/server/debug_websocket.py",
+    "*/__init__.py",
+]
