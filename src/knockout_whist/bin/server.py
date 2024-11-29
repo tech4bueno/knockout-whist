@@ -2,57 +2,65 @@ import asyncio
 import argparse
 import logging
 import os
-import threading
-from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-from websockets.server import serve
+from aiohttp import web
+from aiohttp import WSMsgType
 
 from ..server.game_server import GameServer
 
+logger = logging.getLogger(__name__)
 
-class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        # Get the static directory relative to the package
-        static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
-        super().__init__(*args, directory=static_dir, **kwargs)
+class CombinedServer:
+    def __init__(self):
+        self.app = web.Application()
+        self.game_server = GameServer()
 
-    def log_message(self, format, *args):
-        if logging.getLogger().getEffectiveLevel() <= logging.DEBUG:
-            super().log_message(format, *args)
+        # Setup routes
+        self.app.router.add_get('/ws', self.websocket_handler)
+        self.app.router.add_get('/', self.index_handler)
+        self.app.router.add_static('/', path=self.get_static_dir())
 
-def run_http_server(host: str, port: int) -> None:
-    """Run the HTTP server in a separate thread."""
-    httpd = HTTPServer((host, port), CustomHTTPRequestHandler)
-    logging.info(f"Frontend available at http://{host}:{port}")
-    httpd.serve_forever()
+    def get_static_dir(self):
+        return os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 
-async def main_async(
-    ws_host: str,
-    ws_port: int,
-    http_host: str,
-    http_port: int
-) -> None:
-    """Run both the WebSocket game server and HTTP static file server."""
-    # Start HTTP server in a separate thread
-    http_thread = threading.Thread(
-        target=run_http_server,
-        args=(http_host, http_port),
-        daemon=True
-    )
-    http_thread.start()
+    async def index_handler(self, request):
+        return web.FileResponse(os.path.join(self.get_static_dir(), 'index.html'))
 
-    # Start WebSocket server in the main thread
-    game_server = GameServer()
-    async with serve(game_server.handle_connection, ws_host, ws_port):
-        logging.info(f"Game server running on ws://{ws_host}:{ws_port}")
+    async def websocket_handler(self, request):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
+        logging.debug("New WebSocket connection from %s", request.remote)
+
+        try:
+            # Handle the connection until it's closed
+            await self.game_server.handle_connection(ws)
+        except Exception as e:
+            logging.error("WebSocket error: %s", str(e))
+        finally:
+            logging.debug("WebSocket connection closed")
+
+        return ws
+
+async def main_async(host: str, port: int) -> None:
+    server = CombinedServer()
+    runner = web.AppRunner(server.app)
+    await runner.setup()
+    site = web.TCPSite(runner, host, port)
+    await site.start()
+
+    logging.info(f"Server running on http://{host}:{port}")
+
+    # Keep the server running
+    try:
         await asyncio.Future()  # run forever
+    finally:
+        await runner.cleanup()
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Start the Knockout Whist server")
-    parser.add_argument("--ws-host", default="localhost", help="WebSocket host to bind to")
-    parser.add_argument("--ws-port", type=int, default=8765, help="WebSocket port to bind to")
-    parser.add_argument("--http-host", default="localhost", help="HTTP host to bind to")
-    parser.add_argument("--http-port", type=int, default=8000, help="HTTP port to bind to")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -63,12 +71,7 @@ def main() -> None:
     )
 
     try:
-        asyncio.run(main_async(
-            args.ws_host,
-            args.ws_port,
-            args.http_host,
-            args.http_port
-        ))
+        asyncio.run(main_async(args.host, args.port))
     except KeyboardInterrupt:
         logging.info("Server shutting down")
 

@@ -1,2 +1,2 @@
 websockets>=11.0
-hatchling
+aiohttp>=3.8.0

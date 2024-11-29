@@ -2,9 +2,8 @@ import asyncio
 import json
 import random
 import string
-from typing import List, Optional
-
-import websockets
+from typing import List, Optional, Dict
+from aiohttp import web, WSMsgType
 
 from ..models.card import Card
 from ..models.player import Player
@@ -48,7 +47,6 @@ class Game:
             player.hand = [deck.pop() for _ in range(self.current_round)]
             player.tricks_won = 0
 
-        # Update all players with their new hands
         await self.broadcast_game_state()
 
     async def broadcast_game_state(self) -> None:
@@ -65,11 +63,9 @@ class Game:
         await self.deal_cards()
 
         if self.current_round == 7:
-            # First round: randomly select trump
             self.trump_suit = random.choice(["♠", "♥", "♦", "♣"])
             await self.start_round()
         else:
-            # Let the chosen player select trump
             await self.broadcast({
                 "type": "trumpSelection",
                 "chooser": self.trump_chooser.name,
@@ -108,14 +104,11 @@ class Game:
         card = Card.from_string(card_str)
         self.validate_play(player, card)
 
-        # Remove card from hand
         player.hand = [c for c in player.hand if not (c.suit == card.suit and c.rank == card.rank)]
         self.current_trick.add_play(player, card)
 
-        # Update next player
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
 
-        # Broadcast play
         await self.broadcast({
             "type": "cardPlayed",
             "player": player.name,
@@ -134,11 +127,9 @@ class Game:
             "gameState": self.get_game_state()
         })
 
-        # Determine and announce winner
         winner = self.current_trick.determine_winner(self.trump_suit)
         winner.tricks_won += 1
 
-        # Wait to show the completed trick
         await asyncio.sleep(2)
 
         await self.broadcast({
@@ -147,12 +138,10 @@ class Game:
             "gameState": self.get_game_state()
         })
 
-        # Update game state for next trick
         self.current_player_idx = self.players.index(winner)
         self.trick_starter_idx = self.current_player_idx
         self.current_trick = Trick()
 
-        # Wait before clearing the trick
         await asyncio.sleep(1)
 
         if not any(len(p.hand) > 0 for p in self.players):
@@ -165,7 +154,6 @@ class Game:
 
     async def handle_round_end(self) -> None:
         """Handle the end of a round, including player elimination."""
-        # Eliminate players with no tricks
         self.players = [p for p in self.players if p.tricks_won > 0]
 
         if len(self.players) <= 1 or self.current_round <= 1:
@@ -178,7 +166,6 @@ class Game:
                 })
             return
 
-        # Set up next round
         self.current_round -= 1
         max_tricks = max(p.tricks_won for p in self.players)
         potential_choosers = [p for p in self.players if p.tricks_won == max_tricks]
@@ -234,7 +221,6 @@ class Game:
         for player in self.players:
             await player.send_message(message)
 
-
 class GameServer:
     def __init__(self):
         self.games: Dict[str, Game] = {}
@@ -245,57 +231,68 @@ class GameServer:
             if code not in self.games:
                 return code
 
-    async def handle_connection(self, websocket: websockets.WebSocketServerProtocol) -> None:
+    async def handle_connection(self, ws: web.WebSocketResponse) -> None:
         try:
-            message = await websocket.recv()
-            data = json.loads(message)
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    data = json.loads(msg.data)
 
-            if data["type"] == "create":
-                await self.handle_create_game(websocket, data)
-            elif data["type"] == "join":
-                await self.handle_join_game(websocket, data)
-            else:
-                await websocket.send(json.dumps({
-                    "type": "error",
-                    "message": "Invalid initial message"
-                }))
-                return
+                    if data["type"] == "create":
+                        await self.handle_create_game(ws, data)
+                    elif data["type"] == "join":
+                        await self.handle_join_game(ws, data)
+                    else:
+                        game = self.find_game_for_player(ws)
+                        player = self.find_player_in_game(ws, game)
 
-            await self.handle_game_messages(websocket)
+                        try:
+                            if data["type"] == "startGame":
+                                await self.handle_start_game(game)
+                            elif data["type"] == "playCard":
+                                await game.play_card(player, data["card"])
+                            elif data["type"] == "chooseTrump":
+                                await self.handle_choose_trump(game, player, data["suit"])
+                        except GameError as e:
+                            await ws.send_json({"type": "error", "message": str(e)})
 
-        except websockets.exceptions.ConnectionClosed:
-            await self.handle_disconnection(websocket)
+                elif msg.type == WSMsgType.ERROR:
+                    break
+                elif msg.type == WSMsgType.CLOSE:
+                    break
 
-    async def handle_create_game(self, websocket: websockets.WebSocketServerProtocol, data: dict) -> None:
+        finally:
+            await self.handle_disconnection(ws)
+
+    async def handle_create_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = self.generate_game_code()
         game = Game(code)
         self.games[code] = game
 
-        player = Player(websocket, data["name"], [])
+        player = Player(ws, data["name"], [])
         game.players.append(player)
 
-        await player.send_message({
+        await ws.send_json({
             "type": "gameCreated",
             "code": code,
             "gameState": game.get_game_state(player)
         })
 
-    async def handle_join_game(self, websocket: websockets.WebSocketServerProtocol, data: dict) -> None:
+    async def handle_join_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = data["code"]
         if code not in self.games:
-            await websocket.send(json.dumps({"type": "error", "message": "Game not found"}))
+            await ws.send_json({"type": "error", "message": "Game not found"})
             return
 
         game = self.games[code]
         if game.state != GameState.WAITING:
-            await websocket.send(json.dumps({"type": "error", "message": "Game already started"}))
+            await ws.send_json({"type": "error", "message": "Game already started"})
             return
 
         if len(game.players) >= 7:
-            await websocket.send(json.dumps({"type": "error", "message": "Game full"}))
+            await ws.send_json({"type": "error", "message": "Game full"})
             return
 
-        player = Player(websocket, data["name"], [])
+        player = Player(ws, data["name"], [])
         game.players.append(player)
 
         await game.broadcast({
@@ -304,38 +301,22 @@ class GameServer:
             "gameState": game.get_game_state()
         })
 
-    async def handle_game_messages(self, websocket: websockets.WebSocketServerProtocol) -> None:
-        async for message in websocket:
-            data = json.loads(message)
-            game = self.find_game_for_player(websocket)
-            player = self.find_player_in_game(websocket, game)
-
-            try:
-                if data["type"] == "startGame":
-                    await self.handle_start_game(game)
-                elif data["type"] == "playCard":
-                    await game.play_card(player, data["card"])
-                elif data["type"] == "chooseTrump":
-                    await self.handle_choose_trump(game, player, data["suit"])
-            except GameError as e:
-                await player.send_message({"type": "error", "message": str(e)})
-
-    def find_game_for_player(self, websocket: websockets.WebSocketServerProtocol) -> Game:
+    def find_game_for_player(self, ws: web.WebSocketResponse) -> Game:
         for game in self.games.values():
-            if any(p.ws == websocket for p in game.players):
+            if any(p.ws == ws for p in game.players):
                 return game
         raise GameError("Player not found in any game")
 
-    def find_player_in_game(self, websocket: websockets.WebSocketServerProtocol, game: Game) -> Player:
+    def find_player_in_game(self, ws: web.WebSocketResponse, game: Game) -> Player:
         for player in game.players:
-            if player.ws == websocket:
+            if player.ws == ws:
                 return player
         raise GameError("Player not found in game")
 
-    async def handle_disconnection(self, websocket: websockets.WebSocketServerProtocol) -> None:
+    async def handle_disconnection(self, ws: web.WebSocketResponse) -> None:
         try:
-            game = self.find_game_for_player(websocket)
-            player = self.find_player_in_game(websocket, game)
+            game = self.find_game_for_player(ws)
+            player = self.find_player_in_game(ws, game)
 
             game.players.remove(player)
             if not game.players:
@@ -347,7 +328,7 @@ class GameServer:
                     "gameState": game.get_game_state()
                 })
         except GameError:
-            pass  # Player already removed or not found
+            pass
 
     async def handle_start_game(self, game: Game) -> None:
         if game.state != GameState.WAITING:
@@ -365,5 +346,4 @@ class GameServer:
         if player != game.trump_chooser:
             raise GameError("Not your turn to choose trump")
 
-        game.trump_suit = suit
-        await game.start_round()
+        await game.handle_trump_selection(player, suit)
