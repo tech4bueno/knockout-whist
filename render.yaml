@@ -1,15 +1,10 @@
 services:
-  - type: web
-    name: knockout-whist
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m knockout_whist.bin.server --ws-host 0.0.0.0 --http-host 0.0.0.0
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.9
-    ports:
-      - port: 8000
-        protocol: http
-      - port: 8765
-        protocol: ws
-
+- type: web
+  name: knockout-whist
+  runtime: docker
+  repo: https://github.com/tech4bueno/knockout-whist
+  plan: free
+  region: frankfurt
+  dockerContext: .
+  dockerfilePath: ./Dockerfile
+version: "1"

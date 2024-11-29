@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Knockout Whist</title>
     <script src="tailwind.js"></script>
 <style>
@@ -32,12 +33,24 @@
     .winner-announcement {
         animation: winnerAnnouncement 0.5s ease-out;
     }
+
+    @media (max-width: 640px) {
+        .card-size {
+            width: 3rem;
+            height: 4.5rem;
+            font-size: 1.5rem;
+        }
+        
+        .card-container {
+            gap: 0.5rem;
+        }
+    }
 </style>
 </head>
 <body class="min-h-screen bg-gray-100">
     <!-- Login Screen -->
-    <div id="loginScreen" class="flex min-h-screen items-center justify-center bg-gray-100">
-        <div class="w-96 bg-white rounded-lg shadow-lg p-6">
+    <div id="loginScreen" class="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+        <div class="w-full max-w-sm bg-white rounded-lg shadow-lg p-4 sm:p-6">
             <div class="mb-4">
                 <h2 class="text-xl font-bold">Knockout Whist</h2>
             </div>
@@ -54,16 +67,16 @@
                     placeholder="Game Code (to join)"
                     class="w-full px-3 py-2 border rounded-md"
                 >
-                <div class="flex space-x-2">
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                     <button 
                         onclick="createGame()"
-                        class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 w-full sm:w-auto"
                     >
                         Create Game
                     </button>
                     <button 
                         onclick="joinGame()"
-                        class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                        class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 w-full sm:w-auto"
                     >
                         Join Game
                     </button>
@@ -74,42 +87,42 @@
     </div>
 
     <!-- Game Screen -->
-    <div id="gameScreen" class="min-h-screen bg-gray-100 p-4 hidden">
+    <div id="gameScreen" class="min-h-screen bg-gray-100 p-2 sm:p-4 hidden">
         <div class="bg-white rounded-lg shadow-lg">
-            <div class="p-6 border-b">
-                <h2 class="text-xl font-bold">
-                    Game Code: <span id="gameCodeDisplay"></span> - 
+            <div class="p-3 sm:p-6 border-b">
+                <h2 class="text-lg sm:text-xl font-bold">
+                    Game: <span id="gameCodeDisplay"></span> - 
                     Round <span id="currentRound"></span>
                 </h2>
             </div>
-            <div class="p-6 space-y-4">
+            <div class="p-3 sm:p-6 space-y-4">
                 <!-- Game Status -->
                 <div>
-                    <h3 class="text-lg font-semibold">
+                    <h3 class="text-base sm:text-lg font-semibold">
                         Trumps: <span id="trumpSuit"></span>
                     </h3>
                     <p id="trumpChooserMessage" class="text-sm text-gray-600 hidden"></p>
                 </div>
 
                 <!-- Players -->
-                <div id="playersGrid" class="grid grid-cols-2 gap-4"></div>
+                <div id="playersGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4"></div>
 
                 <!-- Current Hand -->
-                <div id="currentTrickContainer" class="border p-4 rounded hidden">
-                    <h3 class="font-semibold">Current Hand:</h3>
-                    <div id="currentTrick" class="flex justify-center space-x-4"></div>
+                <div id="currentTrickContainer" class="border p-2 sm:p-4 rounded hidden">
+                    <h3 class="font-semibold mb-2">Current Hand:</h3>
+                    <div id="currentTrick" class="flex flex-wrap justify-center card-container"></div>
                 </div>
 
                 <!-- Player's Hand -->
                 <div id="playerHand" class="hidden">
-                    <h3 class="font-semibold">Your Hand:</h3>
-                    <div id="handCards" class="flex flex-wrap gap-4 justify-center"></div>
+                    <h3 class="font-semibold mb-2">Your Hand:</h3>
+                    <div id="handCards" class="flex flex-wrap gap-2 sm:gap-4 justify-center card-container"></div>
                 </div>
 
                 <button 
                     id="startGameButton" 
                     onclick="startGame()"
-                    class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 hidden"
+                    class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 w-full sm:w-auto hidden"
                 >
                     Start Game
                 </button>
@@ -118,14 +131,14 @@
     </div>
 
     <!-- Trump Selection Dialog -->
-    <div id="trumpDialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-lg p-6 max-w-md w-full">
-            <h2 class="text-xl font-bold mb-4">Choose Trump Suit</h2>
-            <div class="flex space-x-4 justify-center">
-                <button onclick="chooseTrump('♠')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded">♠</button>
-                <button onclick="chooseTrump('♥')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded text-red-500">♥</button>
-                <button onclick="chooseTrump('♦')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded text-red-500">♦</button>
-                <button onclick="chooseTrump('♣')" class="w-24 h-36 text-4xl flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded">♣</button>
+    <div id="trumpDialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full">
+            <h2 class="text-lg sm:text-xl font-bold mb-4">Choose Trump Suit</h2>
+            <div class="flex flex-wrap gap-2 justify-center">
+                <button onclick="chooseTrump('♠')" class="card-size flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded">♠</button>
+                <button onclick="chooseTrump('♥')" class="card-size flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded text-red-500">♥</button>
+                <button onclick="chooseTrump('♦')" class="card-size flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded text-red-500">♦</button>
+                <button onclick="chooseTrump('♣')" class="card-size flex items-center justify-center hover:scale-110 transition-transform bg-white border rounded">♣</button>
             </div>
         </div>
     </div>
@@ -314,15 +327,15 @@
 
         function animateCardPlay(card, playerName) {
             const cardDiv = document.createElement('div');
-            cardDiv.className = `w-24 h-36 text-4xl flex items-center justify-center card-played ${getCardColor(card)} border rounded`;
+            cardDiv.className = `card-size flex items-center justify-center card-played ${getCardColor(card)} border rounded`;
             cardDiv.innerHTML = card;
             
             const playerDiv = document.createElement('div');
-            playerDiv.className = 'mt-2 text-center';
+            playerDiv.className = 'mt-2 text-center text-sm';
             playerDiv.textContent = playerName;
             
             const container = document.createElement('div');
-            container.className = 'text-center';
+            container.className = 'text-center m-1';
             container.appendChild(cardDiv);
             container.appendChild(playerDiv);
             
@@ -445,7 +458,7 @@
                     // Add animation class if this is the last played card
                     const isLastPlayed = state.lastPlayedCard === card && state.lastPlayer === player;
                     const cardElement = document.createElement('div');
-                    cardElement.className = `w-24 h-36 text-4xl flex items-center justify-center ${getCardColor(card)} border rounded
+                    cardElement.className = `card-size flex items-center justify-center ${getCardColor(card)} border rounded
                         ${isLastPlayed ? 'card-played' : ''}`;
                     cardElement.textContent = card;
                     
@@ -466,7 +479,7 @@
                 hand.forEach(card => {
                     const playable = isCardPlayable(card);
                     const cardButton = document.createElement('button');
-                    cardButton.className = `w-24 h-36 text-4xl flex items-center justify-center ${getCardColor(card)} border rounded
+                    cardButton.className = `card-size flex items-center justify-center ${getCardColor(card)} border rounded
                         ${!playable ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 transition-transform'}`;
                     cardButton.textContent = card;
                     if (playable) {
