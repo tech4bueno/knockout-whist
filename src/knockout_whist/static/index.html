@@ -164,7 +164,7 @@
         function connectWebSocket(message) {
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsHost = window.location.host;
-            const ws = new WebSocket(`${wsProtocol}//${wsHost}`);
+            const ws = new WebSocket(`${wsProtocol}//${wsHost}:8765`);
             
             ws.onopen = () => {
                 ws.send(JSON.stringify(message));
