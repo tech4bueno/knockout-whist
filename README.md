@@ -1,17 +1,54 @@
 # Knockout Whist
 
+A full-stack implementation of Knockout Whist.
 
-A full-stack implementaiton of Knockout Whist.
+## Architecture
 
-* Python backend
-* Vanilla JS / Tailwind CSS client
-* Websockets for comms between the two
+```mermaid
+graph LR
+    subgraph Frontend["Frontend (Browser)"]
+        HTML["Static HTML"]
+        JS["Vanilla JavaScript"]
+        CSS["Tailwind CSS"]
+        HTML --- JS
+        JS --- CSS
+    end
 
-Less than 1,000 lines of code in total.
+    subgraph Backend["Backend"]
+        Python["Python Server"]
+    end
 
-Try it at https://knockout-whist.onrender.com
+    Frontend <-->|WebSocket Connection| Backend
+
+    style Frontend fill:#f9f9f9,stroke:#333,stroke-width:2px
+    style Backend fill:#f9f9f9,stroke:#333,stroke-width:2px
+    style HTML fill:#e34c26,color:#fff
+    style JS fill:#f7df1e,color:#000
+    style CSS fill:#06b6d4,color:#fff
+    style Python fill:#306998,color:#fff
+```
+
+
+## Design goals
+
+* Mobile-friendly
+* Simple UI
+
+## Implementation goals
+
+* <1,000 lines of code
+* Single server for simple deployment
+* No frontend frameworks
+
+## Try
+
+Go to https://knockout-whist.onrender.com (be patient: first loads takes 1min on Render's free plan)
 
 ## Run
+
+### With [uv](https://docs.astral.sh/uv/)
+
+`uvx --from knockout-whist knockout-whist`
 
 ### With pip
 
@@ -23,7 +60,11 @@ Try it at https://knockout-whist.onrender.com
 
 ## Develop
 
-Install with `pip install -e .`
+```
+git clone https://github.com/tech4bueno/knockout-whist
+pip install -e .[test]
+pytest
+```
 
 ## Deploy
 
