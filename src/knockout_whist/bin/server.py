@@ -4,7 +4,6 @@ import logging
 import os
 
 from aiohttp import web
-from aiohttp import WSMsgType
 
 from ..server.game_server import GameServer
 

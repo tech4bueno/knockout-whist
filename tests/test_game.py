@@ -1,13 +1,10 @@
-import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock
 
-from aiohttp import WSMsgType
 from aiohttp.web import WebSocketResponse
 
 from knockout_whist.models.card import Card
 from knockout_whist.models.player import Player
-from knockout_whist.models.trick import Trick
 from knockout_whist.server.game_server import Game, GameState, GameError, GameServer
 
 

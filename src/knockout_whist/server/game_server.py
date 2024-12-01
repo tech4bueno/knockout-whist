@@ -305,6 +305,7 @@ class GameServer:
             return
 
         game = self.games[code]
+
         if game.state != GameState.WAITING:
             await ws.send_json({"type": "error", "message": "Game already started"})
             return
@@ -358,10 +359,8 @@ class GameServer:
     async def handle_start_game(self, game: Game) -> None:
         if game.state != GameState.WAITING:
             raise GameError("Game already started")
-
         if len(game.players) < 2:
             raise GameError("Need at least 2 players")
-
         await game.start_trump_selection()
 
     async def handle_choose_trump(self, game: Game, player: Player, suit: str) -> None:
