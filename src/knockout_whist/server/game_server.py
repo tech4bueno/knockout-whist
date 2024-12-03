@@ -6,13 +6,13 @@ from typing import List, Optional, Dict
 from aiohttp import web, WSMsgType
 
 from ..models.card import Card
-from ..models.player import Player
+from ..models.player import Player, HumanPlayer, AIPlayer
 from ..models.trick import Trick
 
 
 class GameState:
     WAITING = "waiting"
-    CHOOSING_TRUMP = "choosing_trump"
+    CALLING_TRUMPS = "calling_trumps"
     PLAYING = "playing"
     FINISHED = "finished"
 
@@ -24,14 +24,14 @@ class GameError(Exception):
 class Game:
     def __init__(self, code: str):
         self.code = code
-        self.players: List[Player] = []
+        self.players: List[Union[HumanPlayer, AIPlayer]] = []
         self.state = GameState.WAITING
         self.current_round = 7
         self.trump_suit: Optional[str] = None
         self.current_trick = Trick()
         self.current_player_idx = 0
         self.trick_starter_idx = 0
-        self.trump_chooser: Optional[Player] = None
+        self.trump_caller: Optional[Union[HumanPlayer, AIPlayer]] = None
 
     @property
     def current_player(self) -> Player:
@@ -55,13 +55,46 @@ class Game:
     async def broadcast_game_state(self) -> None:
         """Send current game state to all players."""
         for player in self.players:
-            await player.ws.send_json(
-                {"type": "gameState", "state": self.get_game_state(player)}
-            )
+            if isinstance(player, HumanPlayer):
+                await player.ws.send_json(
+                    {"type": "gameState", "state": self.get_game_state(player)}
+                )
+
+    async def add_ai_player(self, name: str = None) -> None:
+        """Add an AI player to the game."""
+        if not name:
+            name = f"AI {len([p for p in self.players if isinstance(p, AIPlayer)]) + 1}"
+        ai_player = AIPlayer(name)
+        self.players.append(ai_player)
+        await self.broadcast(
+            {
+                "type": "playerJoined",
+                "player": ai_player.name,
+                "isAI": True,
+                "gameState": self.get_game_state(),
+            }
+        )
+
+    async def handle_ai_turns(self) -> None:
+        """Handle turns for AI players."""
+        if self.state == GameState.CALLING_TRUMPS:
+            if isinstance(self.trump_caller, AIPlayer):
+                await asyncio.sleep(1)
+                suit = self.trump_caller.ai.choose_trump()
+                await self.handle_trump_selection(self.trump_caller, suit)
+
+        elif self.state == GameState.PLAYING:
+            while self.state == GameState.PLAYING and isinstance(
+                self.current_player, AIPlayer
+            ):
+                await asyncio.sleep(1)
+                ai_player = self.current_player
+                card = ai_player.ai.choose_card(self.current_trick, self.trump_suit)
+                await self.play_card(ai_player, str(card))
 
     async def start_trump_selection(self) -> None:
         """Start the trump selection phase of the round."""
-        self.state = GameState.CHOOSING_TRUMP
+        self.state = GameState.CALLING_TRUMPS
         await self.deal_cards()
 
         if self.current_round == 7:
@@ -71,10 +104,12 @@ class Game:
             await self.broadcast(
                 {
                     "type": "trumpSelection",
-                    "chooser": self.trump_chooser.name,
+                    "chooser": self.trump_caller.name,
                     "gameState": self.get_game_state(),
                 }
             )
+
+        await self.handle_ai_turns()
 
     async def start_round(self) -> None:
         """Start a new round after trump has been selected."""
@@ -88,10 +123,10 @@ class Game:
 
     async def handle_trump_selection(self, player: Player, suit: str) -> None:
         """Handle a player's trump suit selection."""
-        if self.state != GameState.CHOOSING_TRUMP:
+        if self.state != GameState.CALLING_TRUMPS:
             raise GameError("Not in trump selection phase")
 
-        if player != self.trump_chooser:
+        if player != self.trump_caller:
             raise GameError("Not your turn to choose trump")
 
         if suit not in "♠♥♦♣":
@@ -124,6 +159,8 @@ class Game:
 
         if self.current_trick.is_complete(len(self.players)):
             await self.handle_trick_completion()
+
+        await self.handle_ai_turns()
 
     async def handle_trick_completion(self) -> None:
         """Handle the completion of a trick."""
@@ -176,13 +213,13 @@ class Game:
         self.current_round -= 1
         max_tricks = max(p.tricks_won for p in self.players)
         potential_choosers = [p for p in self.players if p.tricks_won == max_tricks]
-        self.trump_chooser = random.choice(potential_choosers)
+        self.trump_caller = random.choice(potential_choosers)
         self.trump_suit = None
 
         await self.broadcast(
             {
                 "type": "roundEnd",
-                "trumpChooser": self.trump_chooser.name,
+                "trumpChooser": self.trump_caller.name,
                 "gameState": self.get_game_state(),
             }
         )
@@ -218,13 +255,18 @@ class Game:
             "trumpSuit": self.trump_suit,
             "currentTrick": [(p.name, str(c)) for p, c in self.current_trick.plays],
             "players": [
-                {"name": p.name, "trickCount": p.tricks_won} for p in self.players
+                {
+                    "name": p.name,
+                    "trickCount": p.tricks_won,
+                    "isAI": isinstance(p, AIPlayer),
+                }
+                for p in self.players
             ],
             "state": self.state,
             "currentPlayer": (
                 self.current_player.name if self.state == GameState.PLAYING else None
             ),
-            "trumpChooser": self.trump_chooser.name if self.trump_chooser else None,
+            "trumpChooser": self.trump_caller.name if self.trump_caller else None,
         }
 
         if for_player:
@@ -233,9 +275,10 @@ class Game:
         return state
 
     async def broadcast(self, message: dict) -> None:
-        """Broadcast a message to all players."""
+        """Broadcast a message to all human players."""
         for player in self.players:
-            await player.ws.send_json(message)
+            if isinstance(player, HumanPlayer):
+                await player.ws.send_json(message)
 
 
 class GameServer:
@@ -258,6 +301,9 @@ class GameServer:
                         await self.handle_create_game(ws, data)
                     elif data["type"] == "join":
                         await self.handle_join_game(ws, data)
+                    elif data["type"] == "addAI":
+                        game = self.find_game_for_player(ws)
+                        await game.add_ai_player(data.get("name"))
                     else:
                         game = self.find_game_for_player(ws)
                         player = self.find_player_in_game(ws, game)
@@ -287,7 +333,7 @@ class GameServer:
         game = Game(code)
         self.games[code] = game
 
-        player = Player(ws, data["name"], [])
+        player = HumanPlayer(ws, data["name"], [])
         game.players.append(player)
 
         await ws.send_json(
@@ -301,20 +347,17 @@ class GameServer:
     async def handle_join_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = data["code"]
         if code not in self.games:
-            await ws.send_json({"type": "error", "message": "Game not found"})
-            return
+            raise GameError("Game not found")
 
         game = self.games[code]
 
         if game.state != GameState.WAITING:
-            await ws.send_json({"type": "error", "message": "Game already started"})
-            return
+            raise GameError("Game already started")
 
         if len(game.players) >= 7:
-            await ws.send_json({"type": "error", "message": "Game full"})
-            return
+            raise GameError("Game full")
 
-        player = Player(ws, data["name"], [])
+        player = HumanPlayer(ws, data["name"], [])
         game.players.append(player)
 
         await game.broadcast(
@@ -364,8 +407,8 @@ class GameServer:
         await game.start_trump_selection()
 
     async def handle_choose_trump(self, game: Game, player: Player, suit: str) -> None:
-        if game.state != GameState.CHOOSING_TRUMP:
+        if game.state != GameState.CALLING_TRUMPS:
             raise GameError("Not in trump choosing phase")
-        if player != game.trump_chooser:
+        if player != game.trump_caller:
             raise GameError("Not your turn to choose trump")
         await game.handle_trump_selection(player, suit)

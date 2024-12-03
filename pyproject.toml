@@ -5,7 +5,7 @@ authors = [
   { name = "Tech4bueno", email = "164949278+tech4bueno@users.noreply.github.com" },
 ]
 description = "A full-stack implementation of the card game 'Knockout Whist'"
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 dependencies = [
     "aiohttp>=3.8.0",
 ]

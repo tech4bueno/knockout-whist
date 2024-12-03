@@ -128,13 +128,23 @@
                     <div id="handCards" class="flex flex-wrap gap-2 sm:gap-4 justify-center card-container"></div>
                 </div>
 
-                <button 
-                    id="startGameButton" 
-                    onclick="startGame()"
-                    class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 w-full sm:w-auto hidden"
-                >
-                    Start Game
-                </button>
+                <div class="flex space-x-2">
+                    <button 
+                        id="startGameButton" 
+                        onclick="startGame()"
+                        class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 w-full sm:w-auto hidden"
+                    >
+                        Start Game
+                    </button>
+                    <button 
+                        id="addAIButton" 
+                        onclick="addAIPlayer()"
+                        class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 w-full sm:w-auto hidden"
+                    >
+                        Add AI Player
+                    </button>
+                </div>
+
             </div>
         </div>
     </div>
@@ -193,6 +203,16 @@
                 announcement.style.transition = 'opacity 0.5s ease-out';
                 setTimeout(() => announcement.remove(), 500);
             }, 3000);
+        }
+
+        function addAIPlayer() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'addAI'
+                }));
+            } else {
+                showError('Connection lost. Please refresh to reconnect.');
+            }
         }
 
         function connectWebSocket(message) {
@@ -279,7 +299,7 @@
                 case 'roundEnd':
                     gameState = data.gameState;
                     updateGameState(data.gameState);
-                    if (data.trumpChooser === playerName) {
+                    if (data.trumpCaller === playerName) {
                         showTrumpDialog();
                     }
                     break;
@@ -415,7 +435,7 @@
         function chooseTrump(suit) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    type: 'chooseTrump',
+                    type: 'callTrump',
                     suit
                 }));
                 hideTrumpDialog();
@@ -515,10 +535,13 @@
 
             // Show/hide start game button
             const startButton = document.getElementById('startGameButton');
+            const addAIButton = document.getElementById('addAIButton');
             if (state.state === 'waiting') {
                 startButton.classList.remove('hidden');
+                addAIButton.classList.remove('hidden');
             } else {
                 startButton.classList.add('hidden');
+                addAIButton.classList.add('hidden');
             }
         }
 
