@@ -163,6 +163,7 @@
     </div>
 
     <script>
+        let sessionId = localStorage.getItem('sessionId');
         let ws = null;
         let gameState = null;
         let playerName = '';
@@ -219,13 +220,38 @@
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsHost = window.location.host;
             ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
-            
+
             ws.onopen = () => {
-                ws.send(JSON.stringify(message));
+                if (sessionId) {
+                    playerName = localStorage.getItem('playerName');
+                    ws.send(JSON.stringify({
+                        type: 'reconnect',
+                        sessionId: sessionId
+                    }));
+                } else {
+                    playerName = message.name;
+                    localStorage.setItem('playerName', playerName);
+                    ws.send(JSON.stringify(message));
+                }
             };
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
+                
+                if (data.type === 'error' && data.message === 'Invalid session') {
+                    localStorage.removeItem('sessionId');
+                    localStorage.removeItem('playerName');
+                    sessionId = null;
+                    playerName = null;
+                    showLoginScreen();
+                    return;
+                }
+                
+                // Save session ID when received
+                if (data.sessionId) {
+                    sessionId = data.sessionId;
+                    localStorage.setItem('sessionId', sessionId);
+                }
                 handleWebSocketMessage(data);
             };
 
@@ -240,20 +266,17 @@
             };
         }
 
+        function showLoginScreen() {
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('gameScreen').classList.add('hidden');
+        }
+
         function handleWebSocketMessage(data) {
-            console.log('Received message:', data); // Debug log
-            
             switch (data.type) {
                 case 'gameCreated':
-                    gameState = data.gameState;
-                    hand = data.gameState.hand || [];
-                    showGameScreen();
-                    updateGameState(data.gameState);
-                    break;
-                
                 case 'gameState':
-                    gameState = data.state;
-                    hand = data.state.hand || [];
+                    gameState = data.state || data.gameState;
+                    hand = data.state?.hand || data.gameState?.hand || [];
                     showGameScreen();
                     updateGameState(data.state);
                     break;
@@ -295,7 +318,7 @@
                         updateGameState(data.gameState);
                     });
                     break;
-               
+                
                 case 'roundEnd':
                     gameState = data.gameState;
                     updateGameState(data.gameState);
@@ -312,6 +335,12 @@
                     break;
                 
                 case 'error':
+                    if (data.message === 'Invalid session') {
+                        localStorage.removeItem('sessionId');
+                        sessionId = null;
+                        showLoginScreen();
+                        return;
+                    }
                     showError(data.message);
                     break;
                 
@@ -414,8 +443,8 @@
             }, 500);
         }
 
-        // Update the card playing function to include animation
         function playCard(card) {
+
             if (ws && ws.readyState === WebSocket.OPEN && 
                 gameState?.currentPlayer === playerName && 
                 isCardPlayable(card)) {
@@ -521,12 +550,16 @@
                     const playable = isCardPlayable(card);
                     const cardButton = document.createElement('button');
                     cardButton.className = `card-size flex items-center justify-center ${getCardColor(card)} border rounded
-                        ${!playable ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 transition-transform'}`;
+                        ${!playable ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 transition-transform cursor-pointer'}`;
                     cardButton.textContent = card;
-                    if (playable) {
+                    
+                    if (playable && state.currentPlayer === playerName) {
                         cardButton.onclick = () => playCard(card);
+                        cardButton.style.cursor = 'pointer';
+                    } else {
+                        cardButton.disabled = true;
                     }
-                    cardButton.disabled = state.currentPlayer !== playerName || !playable;
+                    
                     handDiv.appendChild(cardButton);
                 });
             } else {
@@ -545,7 +578,16 @@
             }
         }
 
-        // Clean up WebSocket on page unload
+        window.onload = () => {
+            if (sessionId) {
+                connectWebSocket({
+                    type: 'reconnect',
+                    sessionId: sessionId
+                });
+                showGameScreen();
+            }
+        };
+
         window.onbeforeunload = () => {
             if (ws) {
                 ws.close();

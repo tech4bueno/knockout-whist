@@ -1,8 +1,11 @@
 import asyncio
 import json
 import random
+import secrets
 import string
+from dataclasses import dataclass
 from typing import List, Optional, Dict
+
 from aiohttp import web, WSMsgType
 
 from ..models.card import Card
@@ -16,6 +19,12 @@ class GameState:
     PLAYING = "playing"
     FINISHED = "finished"
 
+
+@dataclass
+class PlayerSession:
+    name: str
+    game_code: str
+    session_id: str
 
 class GameError(Exception):
     pass
@@ -219,7 +228,7 @@ class Game:
         await self.broadcast(
             {
                 "type": "roundEnd",
-                "trumpChooser": self.trump_caller.name,
+                "trumpCaller": self.trump_caller.name,
                 "gameState": self.get_game_state(),
             }
         )
@@ -266,7 +275,7 @@ class Game:
             "currentPlayer": (
                 self.current_player.name if self.state == GameState.PLAYING else None
             ),
-            "trumpChooser": self.trump_caller.name if self.trump_caller else None,
+            "trumpCaller": self.trump_caller.name if self.trump_caller else None,
         }
 
         if for_player:
@@ -284,6 +293,19 @@ class Game:
 class GameServer:
     def __init__(self):
         self.games: Dict[str, Game] = {}
+        self.sessions: Dict[str, PlayerSession] = {}
+        self.player_ws: Dict[str, web.WebSocketResponse] = {}
+
+    def generate_session_id(self) -> str:
+        return secrets.token_urlsafe(32)
+
+    def create_session(self, name: str, game_code: str) -> str:
+        session_id = self.generate_session_id()
+        self.sessions[session_id] = PlayerSession(name=name, game_code=game_code, session_id=session_id)
+        return session_id
+
+    def get_session(self, session_id: str) -> Optional[PlayerSession]:
+        return self.sessions.get(session_id)
 
     def generate_game_code(self) -> str:
         while True:
@@ -296,6 +318,10 @@ class GameServer:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
                     data = json.loads(msg.data)
+
+                    if data.get("type") == "reconnect":
+                        await self.handle_reconnection(ws, data)
+                        continue
 
                     if data["type"] == "create":
                         await self.handle_create_game(ws, data)
@@ -314,9 +340,7 @@ class GameServer:
                             elif data["type"] == "playCard":
                                 await game.play_card(player, data["card"])
                             elif data["type"] == "chooseTrump":
-                                await self.handle_choose_trump(
-                                    game, player, data["suit"]
-                                )
+                                await game.handle_trump_selection(player, data["suit"])
                         except GameError as e:
                             await ws.send_json({"type": "error", "message": str(e)})
 
@@ -326,7 +350,9 @@ class GameServer:
                     break
 
         finally:
-            await self.handle_disconnection(ws)
+            session_id = next((sid for sid, socket in self.player_ws.items() if socket == ws), None)
+            if session_id:
+                del self.player_ws[session_id]
 
     async def handle_create_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = self.generate_game_code()
@@ -334,15 +360,48 @@ class GameServer:
         self.games[code] = game
 
         player = HumanPlayer(ws, data["name"], [])
+        session_id = self.create_session(data["name"], code)
+        self.player_ws[session_id] = ws
         game.players.append(player)
 
         await ws.send_json(
             {
                 "type": "gameCreated",
                 "code": code,
+                "sessionId": session_id,
                 "gameState": game.get_game_state(player),
             }
         )
+
+    async def handle_reconnection(self, ws: web.WebSocketResponse, data: dict) -> None:
+        session_id = data.get("sessionId")
+
+        if not session_id or session_id not in self.sessions:
+            raise GameError("Invalid session")
+
+        session = self.sessions[session_id]
+
+        if session.game_code not in self.games:
+            raise GameError("Game not found")
+
+        game = self.games[session.game_code]
+
+        # Update WebSocket for player
+        self.player_ws[session_id] = ws
+
+        # Find and update player's WebSocket reference
+        for player in game.players:
+            if isinstance(player, HumanPlayer) and player.name == session.name:
+                player.ws = ws
+                # Send current game state
+                await ws.send_json({
+                    "type": "gameState",
+                    "state": game.get_game_state(player),
+                    "sessionId": session_id
+                })
+                return
+
+        raise GameError("Player not found in game")
 
     async def handle_join_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = data["code"]
@@ -353,12 +412,19 @@ class GameServer:
 
         if game.state != GameState.WAITING:
             raise GameError("Game already started")
-
         if len(game.players) >= 7:
             raise GameError("Game full")
 
         player = HumanPlayer(ws, data["name"], [])
+        session_id = self.create_session(data["name"], code)
+        self.player_ws[session_id] = ws
         game.players.append(player)
+
+        await ws.send_json({
+            "type": "joined",
+            "sessionId": session_id,
+            "gameState": game.get_game_state(player)
+        })
 
         await game.broadcast(
             {
@@ -380,25 +446,6 @@ class GameServer:
                 return player
         raise GameError("Player not found in game")
 
-    async def handle_disconnection(self, ws: web.WebSocketResponse) -> None:
-        try:
-            game = self.find_game_for_player(ws)
-            player = self.find_player_in_game(ws, game)
-
-            game.players.remove(player)
-            if not game.players:
-                del self.games[game.code]
-            else:
-                await game.broadcast(
-                    {
-                        "type": "playerLeft",
-                        "player": player.name,
-                        "gameState": game.get_game_state(),
-                    }
-                )
-        except GameError:
-            pass
-
     async def handle_start_game(self, game: Game) -> None:
         if game.state != GameState.WAITING:
             raise GameError("Game already started")
@@ -407,8 +454,4 @@ class GameServer:
         await game.start_trump_selection()
 
     async def handle_choose_trump(self, game: Game, player: Player, suit: str) -> None:
-        if game.state != GameState.CALLING_TRUMPS:
-            raise GameError("Not in trump choosing phase")
-        if player != game.trump_caller:
-            raise GameError("Not your turn to choose trump")
         await game.handle_trump_selection(player, suit)
