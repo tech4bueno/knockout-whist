@@ -14,6 +14,11 @@ class Player:
     hand: List[Card] = field(default_factory=list)
     tricks_won: int = 0
 
+    def sort_hand(self):
+        """Group cards by suit and sort lowest to highest."""
+        suit_order = {"♦": 0, "♣": 1, "♥": 2, "♠": 3}
+        self.hand.sort(key=lambda card: (suit_order[card.suit], card.rank))
+
 
 class HumanPlayer(Player):
     def __init__(self, ws: web.WebSocketResponse, name: str, hand: List[Card]):

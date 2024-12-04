@@ -15,10 +15,10 @@ graph LR
     end
 
     subgraph Backend["Backend"]
-        Python["Python Server"]
+        Python["Game Server"]
     end
 
-    Frontend <-->|WebSocket Connection| Backend
+    Frontend <-->|JSON over WebSocket Connection| Backend
 
     style Frontend fill:#f9f9f9,stroke:#333,stroke-width:2px
     style Backend fill:#f9f9f9,stroke:#333,stroke-width:2px
@@ -33,6 +33,7 @@ graph LR
 
 * Mobile-friendly
 * Simple UI
+* Seamless reconnects
 
 ## Implementation goals
 
@@ -42,7 +43,7 @@ graph LR
 
 ## Try
 
-Go to https://knockout-whist.onrender.com (be patient: first loads takes 1min on Render's free plan)
+Go to https://knockout-whist.onrender.com (be patient: first load takes 1min+ on Render's free plan)
 
 ## Run
 

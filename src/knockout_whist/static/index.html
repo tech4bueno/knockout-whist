@@ -275,63 +275,59 @@
             switch (data.type) {
                 case 'gameCreated':
                 case 'gameState':
-                    gameState = data.state || data.gameState;
-                    hand = data.state?.hand || data.gameState?.hand || [];
+                case 'playerJoined':
+                case 'joined':
+                    gameState = data.state;
+                    hand = data.state?.hand || [];
                     showGameScreen();
                     updateGameState(data.state);
                     break;
                 
-                case 'playerJoined':
-                    gameState = data.gameState;
-                    showGameScreen();
-                    updateGameState(data.gameState);
-                    break;
-
                 case 'cardPlayed':
                     if (data.player === playerName) {
                         hand = hand.filter(card => card !== data.card);
                     }
-                    gameState = data.gameState;
+                    gameState = data.state;
                     gameState.currentPlayer = data.nextPlayer;
                     gameState.lastPlayedCard = data.card;
                     gameState.lastPlayer = data.player;
-                    updateGameState(data.gameState);
+                    updateGameState(data.state);
                     break;
 
                 case 'trickComplete':
-                    gameState = data.gameState;
+                    gameState = data.state;
                     delete gameState.lastPlayedCard;
                     delete gameState.lastPlayer;
-                    updateGameState(data.gameState);
+                    updateGameState(data.state);
                     showTrickComplete();
                     break;
 
                 case 'trickWinner':
-                    gameState = data.gameState;
+                    gameState = data.state;
                     gameState.currentPlayer = data.nextPlayer;
                     showTrickWinner(data.winner);
                     break;
 
                 case 'nextTrick':
-                    gameState = data.gameState;
+                    gameState = data.state;
                     clearTrickWithAnimation(() => {
-                        updateGameState(data.gameState);
+                        updateGameState(data.state);
                     });
                     break;
                 
                 case 'roundEnd':
-                    gameState = data.gameState;
-                    updateGameState(data.gameState);
+                    gameState = data.state;
+                    updateGameState(data.state);
                     if (data.trumpCaller === playerName) {
                         showTrumpDialog();
                     }
                     break;
                 
                 case 'roundStart':
-                    gameState = data.gameState;
-                    hand = data.gameState.hand || [];
+                    gameState = data.state;
+                    hand = data.state.hand || [];
                     hideTrumpDialog();
-                    updateGameState(data.gameState);
+                    updateGameState(data.state);
                     break;
                 
                 case 'error':
@@ -349,13 +345,13 @@
                     break;
                 
                 case 'playerLeft':
-                    gameState = data.gameState;
-                    updateGameState(data.gameState);
+                    gameState = data.state;
+                    updateGameState(data.state);
                     break;
                 
                 case 'gameOver':
-                    gameState = data.gameState;
-                    updateGameState(data.gameState);
+                    gameState = data.state;
+                    updateGameState(data.state);
                     showError(`Game Over! Winner: ${data.winner}`);
                     break;
             }
@@ -464,7 +460,7 @@
         function chooseTrump(suit) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    type: 'callTrump',
+                    type: 'callTrumps',
                     suit
                 }));
                 hideTrumpDialog();

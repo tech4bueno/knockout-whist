@@ -57,6 +57,7 @@ class Game:
         deck = self.create_deck()
         for player in self.players:
             player.hand = [deck.pop() for _ in range(self.current_round)]
+            player.sort_hand()
             player.tricks_won = 0
 
         await self.broadcast_game_state()
@@ -80,7 +81,7 @@ class Game:
                 "type": "playerJoined",
                 "player": ai_player.name,
                 "isAI": True,
-                "gameState": self.get_game_state(),
+                "state": self.get_game_state(),
             }
         )
 
@@ -114,7 +115,7 @@ class Game:
                 {
                     "type": "trumpSelection",
                     "chooser": self.trump_caller.name,
-                    "gameState": self.get_game_state(),
+                    "state": self.get_game_state(),
                 }
             )
 
@@ -126,7 +127,7 @@ class Game:
         self.current_trick = Trick()
         self.current_player_idx = self.trick_starter_idx
 
-        await self.broadcast({"type": "roundStart", "gameState": self.get_game_state()})
+        await self.broadcast({"type": "roundStart", "state": self.get_game_state()})
 
         await self.broadcast_game_state()
 
@@ -162,7 +163,7 @@ class Game:
                 "player": player.name,
                 "card": card_str,
                 "nextPlayer": self.current_player.name,
-                "gameState": self.get_game_state(),
+                "state": self.get_game_state(),
             }
         )
 
@@ -174,7 +175,7 @@ class Game:
     async def handle_trick_completion(self) -> None:
         """Handle the completion of a trick."""
         await self.broadcast(
-            {"type": "trickComplete", "gameState": self.get_game_state()}
+            {"type": "trickComplete", "state": self.get_game_state()}
         )
 
         winner = self.current_trick.determine_winner(self.trump_suit)
@@ -186,7 +187,7 @@ class Game:
             {
                 "type": "trickWinner",
                 "winner": winner.name,
-                "gameState": self.get_game_state(),
+                "state": self.get_game_state(),
             }
         )
 
@@ -200,7 +201,7 @@ class Game:
             await self.handle_round_end()
         else:
             await self.broadcast(
-                {"type": "nextTrick", "gameState": self.get_game_state()}
+                {"type": "nextTrick", "state": self.get_game_state()}
             )
 
     async def handle_round_end(self) -> None:
@@ -214,7 +215,7 @@ class Game:
                     {
                         "type": "gameOver",
                         "winner": self.players[0].name,
-                        "gameState": self.get_game_state(),
+                        "state": self.get_game_state(),
                     }
                 )
             return
@@ -229,7 +230,7 @@ class Game:
             {
                 "type": "roundEnd",
                 "trumpCaller": self.trump_caller.name,
-                "gameState": self.get_game_state(),
+                "state": self.get_game_state(),
             }
         )
 
@@ -339,7 +340,7 @@ class GameServer:
                                 await self.handle_start_game(game)
                             elif data["type"] == "playCard":
                                 await game.play_card(player, data["card"])
-                            elif data["type"] == "chooseTrump":
+                            elif data["type"] == "callTrumps":
                                 await game.handle_trump_selection(player, data["suit"])
                         except GameError as e:
                             await ws.send_json({"type": "error", "message": str(e)})
@@ -369,7 +370,7 @@ class GameServer:
                 "type": "gameCreated",
                 "code": code,
                 "sessionId": session_id,
-                "gameState": game.get_game_state(player),
+                "state": game.get_game_state(player),
             }
         )
 
@@ -377,7 +378,8 @@ class GameServer:
         session_id = data.get("sessionId")
 
         if not session_id or session_id not in self.sessions:
-            raise GameError("Invalid session")
+            await ws.send_json({"type": "error", "message": "Invalid session"})
+            return
 
         session = self.sessions[session_id]
 
@@ -423,14 +425,14 @@ class GameServer:
         await ws.send_json({
             "type": "joined",
             "sessionId": session_id,
-            "gameState": game.get_game_state(player)
+            "state": game.get_game_state(player)
         })
 
         await game.broadcast(
             {
                 "type": "playerJoined",
                 "player": data["name"],
-                "gameState": game.get_game_state(),
+                "state": game.get_game_state(),
             }
         )
 
