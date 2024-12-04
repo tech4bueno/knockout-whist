@@ -331,12 +331,6 @@
                     break;
                 
                 case 'error':
-                    if (data.message === 'Invalid session') {
-                        localStorage.removeItem('sessionId');
-                        sessionId = null;
-                        showLoginScreen();
-                        return;
-                    }
                     showError(data.message);
                     break;
                 
