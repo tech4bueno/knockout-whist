@@ -46,15 +46,30 @@ class Game:
     def current_player(self) -> Player:
         return self.players[self.current_player_idx]
 
+    def calculate_required_decks(self) -> int:
+        """Calculate how many decks are needed for the current round."""
+        cards_needed = self.current_round * len(self.players)
+        cards_per_deck = 52
+        return max(1, (cards_needed + cards_per_deck - 1) // cards_per_deck)
+
     def create_deck(self) -> List[Card]:
-        """Create and shuffle a new deck of cards."""
-        deck = [Card(suit, rank) for suit in "♠♥♦♣" for rank in range(2, 15)]
+        """Create and shuffle multiple decks of cards based on player count."""
+        num_decks = self.calculate_required_decks()
+        deck = []
+
+        for _ in range(num_decks):
+            deck.extend([Card(suit, rank) for suit in "♠♥♦♣" for rank in range(2, 15)])
+
         random.shuffle(deck)
         return deck
 
     async def deal_cards(self) -> None:
         """Deal cards to all players for the current round."""
         deck = self.create_deck()
+
+        if len(deck) < (self.current_round * len(self.players)):
+            raise GameError("Not enough cards in deck")
+
         for player in self.players:
             player.hand = [deck.pop() for _ in range(self.current_round)]
             player.sort_hand()
@@ -312,6 +327,7 @@ class GameServer:
         self.games: Dict[str, Game] = {}
         self.sessions: Dict[str, PlayerSession] = {}
         self.player_ws: Dict[str, web.WebSocketResponse] = {}
+        self.MAX_PLAYERS = 21
 
     def generate_session_id(self) -> str:
         return secrets.token_urlsafe(32)
@@ -437,7 +453,7 @@ class GameServer:
 
         if game.state != GameState.WAITING:
             raise GameError("Game already started")
-        if len(game.players) >= 7:
+        if len(game.players) >= self.MAX_PLAYERS:
             raise GameError("Game full")
 
         player = HumanPlayer(ws, data["name"], [])

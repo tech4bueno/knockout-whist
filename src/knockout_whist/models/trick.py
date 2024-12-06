@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple, Optional
 
 from .card import Card
 
@@ -18,12 +18,15 @@ class Trick:
         return len(self.plays) == player_count
 
     def determine_winner(self, trump_suit: str) -> "Player":
-        """Trumps > led suit > other suits"""
+        """Determine winner with duplicate card handling.
+        Priority: Trumps > led suit > other suits.
+        For identical cards, the first player to play the card wins."""
+
         return max(
             self.plays,
-            key=lambda pc: (
-                pc[1].suit == trump_suit,
-                pc[1].suit == self.led_suit,
-                pc[1].rank,
-            ),
-        )[0]
+            key=lambda play_with_index: (
+                play_with_index[1].suit == trump_suit,  # Trump suit priority
+                play_with_index[1].suit == self.led_suit,  # Led suit priority
+                play_with_index[1].rank,  # Card rank
+                -self.plays.index(play_with_index)  # Play order
+        ))[0]
