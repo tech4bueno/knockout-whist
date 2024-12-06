@@ -342,6 +342,13 @@ class GameServer:
                                 await game.play_card(player, data["card"])
                             elif data["type"] == "callTrumps":
                                 await game.handle_trump_selection(player, data["suit"])
+                            elif data["type"] == "playAgain":
+                                game = self.find_game_for_player(ws)
+                                await game.reset_game()
+                                await ws.send_json({
+                                    "type": "playAgainSuccess",
+                                    "state": game.get_game_state(self.find_player_in_game(ws, game))
+                                })
                         except GameError as e:
                             await ws.send_json({"type": "error", "message": str(e)})
 
@@ -373,6 +380,22 @@ class GameServer:
                 "state": game.get_game_state(player),
             }
         )
+
+    async def reset_game(self):
+        """Reset the game state for a new game."""
+        self.current_round = 7
+        self.trump_suit = None
+        self.current_trick = Trick()
+        self.current_player_idx = 0
+        self.trick_starter_idx = 0
+        self.trump_caller = None
+        self.state = GameState.WAITING
+
+        for player in self.players:
+            player.hand = []
+            player.tricks_won = 0
+
+        await self.broadcast_game_state()
 
     async def handle_reconnection(self, ws: web.WebSocketResponse, data: dict) -> None:
         session_id = data.get("sessionId")

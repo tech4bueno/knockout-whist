@@ -44,6 +44,18 @@
         animation: winnerAnnouncement 0.5s ease-out;
     }
 
+    /* Default card size for screens above 640px */
+    .card-size {
+        width: 4.5rem;  /* 72px */
+        height: 6rem;   /* 96px */
+        font-size: 2rem;
+    }
+    
+    .card-container {
+        gap: 1rem;
+    }
+
+    /* Smaller card size for mobile screens */
     @media (max-width: 640px) {
         .card-size {
             width: 3rem;
@@ -144,7 +156,13 @@
                         Add AI Player
                     </button>
                 </div>
-
+                <button 
+                    id="playAgainButton" 
+                    onclick="playAgain()"
+                    class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 w-full sm:w-auto hidden"
+                >
+                    Play Again
+                </button>
             </div>
         </div>
     </div>
@@ -347,6 +365,13 @@
                     gameState = data.state;
                     updateGameState(data.state);
                     showError(`Game Over! Winner: ${data.winner}`);
+                    document.getElementById('playAgainButton').classList.remove('hidden');
+                    break;
+
+                case 'playAgainSuccess':
+                    gameState = data.state;
+                    document.getElementById('playAgainButton').classList.add('hidden');
+                    updateGameState(data.state);
                     break;
             }
         }
@@ -565,6 +590,16 @@
             } else {
                 startButton.classList.add('hidden');
                 addAIButton.classList.add('hidden');
+            }
+        }
+
+        function playAgain() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'playAgain'
+                }));
+            } else {
+                showError('Connection lost. Please refresh to reconnect.');
             }
         }
 
