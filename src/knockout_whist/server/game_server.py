@@ -62,6 +62,22 @@ class Game:
 
         await self.broadcast_game_state()
 
+    async def reset_game(self):
+        """Reset the game state for a new game."""
+        self.current_round = 7
+        self.trump_suit = None
+        self.current_trick = Trick()
+        self.current_player_idx = 0
+        self.trick_starter_idx = 0
+        self.trump_caller = None
+        self.state = GameState.WAITING
+
+        for player in self.players:
+            player.hand = []
+            player.tricks_won = 0
+
+        await self.broadcast_game_state()
+
     async def broadcast_game_state(self) -> None:
         """Send current game state to all players."""
         for player in self.players:
@@ -380,22 +396,6 @@ class GameServer:
                 "state": game.get_game_state(player),
             }
         )
-
-    async def reset_game(self):
-        """Reset the game state for a new game."""
-        self.current_round = 7
-        self.trump_suit = None
-        self.current_trick = Trick()
-        self.current_player_idx = 0
-        self.trick_starter_idx = 0
-        self.trump_caller = None
-        self.state = GameState.WAITING
-
-        for player in self.players:
-            player.hand = []
-            player.tricks_won = 0
-
-        await self.broadcast_game_state()
 
     async def handle_reconnection(self, ws: web.WebSocketResponse, data: dict) -> None:
         session_id = data.get("sessionId")
