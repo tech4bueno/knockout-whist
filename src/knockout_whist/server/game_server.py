@@ -184,9 +184,12 @@ class Game:
         card = Card.from_string(card_str)
         self.validate_play(player, card)
 
-        player.hand = [
-            c for c in player.hand if not (c.suit == card.suit and c.rank == card.rank)
-        ]
+        # Play only the first card in case of the player having multiple
+        for i, c in enumerate(player.hand):
+            if c.suit == card.suit and c.rank == card.rank:
+                player.hand.pop(i)
+                break
+
         self.current_trick.add_play(player, card)
 
         self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
