@@ -32,9 +32,10 @@ class GameError(Exception):
 
 
 class Game:
-    def __init__(self, code: str):
+    def __init__(self, code: str, on_player_eliminated=None):
         self.code = code
         self.players: List[Player] = []
+        self.on_player_eliminated = on_player_eliminated
         self.spectators: List[HumanPlayer] = []
         self.state = GameState.WAITING
         self.current_round = 7
@@ -90,10 +91,13 @@ class Game:
         self.current_round = 7
         self.trump_suit = None
         self.current_trick = Trick()
-        self.current_player_idx = 0
-        self.trick_starter_idx = 0
+        self.current_player = None
+        self.trick_starter = None
         self.trump_caller = None
         self.state = GameState.WAITING
+
+        self.players.extend(self.spectators)
+        self.spectators.clear()
 
         for player in self.players:
             player.hand = []
@@ -142,7 +146,7 @@ class Game:
             while self.state == GameState.PLAYING and isinstance(
                 self.current_player, AIPlayer
             ):
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
                 ai_player = self.current_player
                 card = ai_player.ai.choose_card(self.current_trick, self.trump_suit)
                 await self.play_card(ai_player, str(card))
@@ -234,10 +238,8 @@ class Game:
             self.players.remove(player)
             if isinstance(player, HumanPlayer):
                 self.spectators.append(player)
-                session_id = next((sid for sid, session in self.sessions.items()
-                                  if session.name == player.name and session.game_code == self.code), None)
-                if session_id:
-                    self.sessions[session_id].is_spectator = True
+                if self.on_player_eliminated:
+                    self.on_player_eliminated(self.code, player.name)
                 await player.ws.send_json({"type": "eliminated"})
 
         if len(self.players) <= 1 or self.current_round <= 1:
@@ -359,6 +361,12 @@ class GameServer:
         self.player_ws: Dict[str, web.WebSocketResponse] = {}
         self.MAX_PLAYERS = 21
 
+    def handle_player_elimination(self, game_code: str, player_name: str) -> None:
+        """Update a player's session when they're eliminated"""
+        for session in self.sessions.values():
+            if session.game_code == game_code and session.name == player_name:
+                session.is_spectator = True
+
     def generate_session_id(self) -> str:
         return secrets.token_urlsafe(32)
 
@@ -426,7 +434,7 @@ class GameServer:
 
     async def handle_create_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = self.generate_game_code()
-        game = Game(code)
+        game = Game(code, on_player_eliminated=self.handle_player_elimination)
         self.games[code] = game
 
         player = HumanPlayer(ws, data["name"], [])
@@ -503,7 +511,7 @@ class GameServer:
 
     def find_game_for_player(self, ws: web.WebSocketResponse) -> Game:
         for game in self.games.values():
-            if any(p.ws == ws for p in game.players):
+            if any(p.ws == ws for p in (game.players + game.spectators)):
                 return game
         raise GameError("Player not found in any game")
 

@@ -36,6 +36,8 @@ class CombinedServer:
         except Exception as e:
             raise
             logging.error("Error: %s", str(e))
+        except ConnectionResetError as e:
+            logging.error("ClientConnectionResetError: %s", str(e))
         finally:
             logging.debug("WebSocket connection closed")
 
