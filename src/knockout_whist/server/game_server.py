@@ -490,7 +490,7 @@ class GameServer:
         raise GameError("Player not found in any game")
 
     def find_player_in_game(self, ws: web.WebSocketResponse, game: Game) -> Player:
-        for player in game.players:
+        for player in game.players + game.spectators:
             if player.ws == ws:
                 return player
         raise GameError("Player not found in game")
