@@ -34,19 +34,25 @@ class GameError(Exception):
 class Game:
     def __init__(self, code: str):
         self.code = code
-        self.players: List[Union[HumanPlayer, AIPlayer]] = []
+        self.players: List[Player] = []
         self.spectators: List[HumanPlayer] = []
         self.state = GameState.WAITING
         self.current_round = 7
         self.trump_suit: Optional[str] = None
         self.current_trick = Trick()
-        self.current_player_idx = 0
-        self.trick_starter_idx = 0
-        self.trump_caller: Optional[Union[HumanPlayer, AIPlayer]] = None
+        self.current_player: Optional[Player] = None
+        self.trick_starter: Optional[Player] = None
+        self.trump_caller: Optional[Player] = None
 
-    @property
-    def current_player(self) -> Player:
-        return self.players[self.current_player_idx]
+    def next_player(self, current: Player) -> Optional[Player]:
+        """Get the next player in the rotation."""
+        if not self.players:
+            return None
+        try:
+            current_idx = self.players.index(current)
+            return self.players[(current_idx + 1) % len(self.players)]
+        except ValueError:  # Current player not found (might have been eliminated)
+            return self.players[0] if self.players else None
 
     def calculate_required_decks(self) -> int:
         """Calculate how many decks are needed for the current round."""
@@ -95,6 +101,12 @@ class Game:
 
         await self.broadcast_game_state()
 
+    async def broadcast(self, message: dict) -> None:
+        """Broadcast a message to all human players."""
+        for player in self.players + self.spectators:
+            if isinstance(player, HumanPlayer):
+                await player.ws.send_json(message)
+
     async def broadcast_game_state(self) -> None:
         """Send current game state to all players."""
         for player in self.players + self.spectators:
@@ -142,6 +154,8 @@ class Game:
 
         if self.current_round == 7:
             self.trump_suit = random.choice(["♠", "♥", "♦", "♣"])
+            self.current_player = random.choice(self.players)
+            self.trick_starter = self.current_player
             await self.start_round()
         else:
             await self.broadcast(
@@ -158,7 +172,7 @@ class Game:
         """Start a new round after trump has been selected."""
         self.state = GameState.PLAYING
         self.current_trick = Trick()
-        self.current_player_idx = self.trick_starter_idx
+        self.current_player = self.trick_starter
 
         await self.broadcast({"type": "roundStart", "state": self.get_game_state()})
 
@@ -177,36 +191,6 @@ class Game:
 
         self.trump_suit = suit
         await self.start_round()
-        await self.handle_ai_turns()
-
-    async def play_card(self, player: Player, card_str: str) -> None:
-        """Handle a player playing a card."""
-        card = Card.from_string(card_str)
-        self.validate_play(player, card)
-
-        # Play only the first card in case of the player having multiple
-        for i, c in enumerate(player.hand):
-            if c.suit == card.suit and c.rank == card.rank:
-                player.hand.pop(i)
-                break
-
-        self.current_trick.add_play(player, card)
-
-        self.current_player_idx = (self.current_player_idx + 1) % len(self.players)
-
-        await self.broadcast(
-            {
-                "type": "cardPlayed",
-                "player": player.name,
-                "card": card_str,
-                "nextPlayer": self.current_player.name,
-                "state": self.get_game_state(),
-            }
-        )
-
-        if self.current_trick.is_complete(len(self.players)):
-            await self.handle_trick_completion()
-
         await self.handle_ai_turns()
 
     async def handle_trick_completion(self) -> None:
@@ -228,8 +212,8 @@ class Game:
             }
         )
 
-        self.current_player_idx = self.players.index(winner)
-        self.trick_starter_idx = self.current_player_idx
+        self.current_player = winner
+        self.trick_starter = winner
         self.current_trick = Trick()
 
         await asyncio.sleep(1)
@@ -243,12 +227,18 @@ class Game:
 
     async def handle_round_end(self) -> None:
         """Handle round end and move eliminated players to spectators."""
+
         eliminated_players = [p for p in self.players if p.tricks_won == 0]
+
         for player in eliminated_players:
             self.players.remove(player)
             if isinstance(player, HumanPlayer):
                 self.spectators.append(player)
-                await player.ws.send_json({"type": "becameSpectator"})
+                session_id = next((sid for sid, session in self.sessions.items()
+                                  if session.name == player.name and session.game_code == self.code), None)
+                if session_id:
+                    self.sessions[session_id].is_spectator = True
+                await player.ws.send_json({"type": "eliminated"})
 
         if len(self.players) <= 1 or self.current_round <= 1:
             self.state = GameState.FINISHED
@@ -268,6 +258,10 @@ class Game:
         self.trump_caller = random.choice(potential_choosers)
         self.trump_suit = None
 
+        # Set current player for next round
+        self.current_player = self.trump_caller
+        self.trick_starter = self.trump_caller
+
         await self.broadcast(
             {
                 "type": "roundEnd",
@@ -277,6 +271,37 @@ class Game:
         )
 
         await self.start_trump_selection()
+
+    async def play_card(self, player: Player, card_str: str) -> None:
+        """Handle a player playing a card."""
+        card = Card.from_string(card_str)
+        self.validate_play(player, card)
+
+        # Play the card
+        for i, c in enumerate(player.hand):
+            if c.suit == card.suit and c.rank == card.rank:
+                player.hand.pop(i)
+                break
+
+        self.current_trick.add_play(player, card)
+
+        next_player = self.next_player(player)
+        self.current_player = next_player
+
+        await self.broadcast(
+            {
+                "type": "cardPlayed",
+                "player": player.name,
+                "card": card_str,
+                "nextPlayer": next_player.name if next_player else None,
+                "state": self.get_game_state(),
+            }
+        )
+
+        if self.current_trick.is_complete(len(self.players)):
+            await self.handle_trick_completion()
+
+        await self.handle_ai_turns()
 
     def validate_play(self, player: Player, card: Card) -> None:
         """Prevent illegal plays."""
@@ -317,7 +342,7 @@ class Game:
             "spectators": [s.name for s in self.spectators],
             "state": self.state,
             "currentPlayer": (
-                self.current_player.name if self.state == GameState.PLAYING else None
+                self.current_player.name if self.current_player and self.state == GameState.PLAYING else None
             ),
             "trumpCaller": self.trump_caller.name if self.trump_caller else None,
         }
@@ -326,13 +351,6 @@ class Game:
             state["hand"] = [str(c) for c in for_player.hand]
 
         return state
-
-    async def broadcast(self, message: dict) -> None:
-        """Broadcast a message to all human players."""
-        for player in self.players + self.spectators:
-            if isinstance(player, HumanPlayer):
-                await player.ws.send_json(message)
-
 
 class GameServer:
     def __init__(self):
