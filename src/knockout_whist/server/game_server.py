@@ -34,6 +34,7 @@ class Game:
     def __init__(self, code: str):
         self.code = code
         self.players: List[Union[HumanPlayer, AIPlayer]] = []
+        self.spectators: List[HumanPlayer] = []
         self.state = GameState.WAITING
         self.current_round = 7
         self.trump_suit: Optional[str] = None
@@ -95,7 +96,7 @@ class Game:
 
     async def broadcast_game_state(self) -> None:
         """Send current game state to all players."""
-        for player in self.players:
+        for player in self.players + self.spectators:
             if isinstance(player, HumanPlayer):
                 await player.ws.send_json(
                     {"type": "gameState", "state": self.get_game_state(player)}
@@ -175,6 +176,7 @@ class Game:
 
         self.trump_suit = suit
         await self.start_round()
+        await self.handle_ai_turns()
 
     async def play_card(self, player: Player, card_str: str) -> None:
         """Handle a player playing a card."""
@@ -236,8 +238,13 @@ class Game:
             )
 
     async def handle_round_end(self) -> None:
-        """Handle the end of a round, including player elimination."""
-        self.players = [p for p in self.players if p.tricks_won > 0]
+        """Handle round end and move eliminated players to spectators."""
+        eliminated_players = [p for p in self.players if p.tricks_won == 0]
+        for player in eliminated_players:
+            self.players.remove(player)
+            if isinstance(player, HumanPlayer):
+                self.spectators.append(player)
+                await player.ws.send_json({"type": "becameSpectator"})
 
         if len(self.players) <= 1 or self.current_round <= 1:
             self.state = GameState.FINISHED
@@ -303,6 +310,7 @@ class Game:
                 }
                 for p in self.players
             ],
+            "spectators": [s.name for s in self.spectators],
             "state": self.state,
             "currentPlayer": (
                 self.current_player.name if self.state == GameState.PLAYING else None
@@ -310,14 +318,14 @@ class Game:
             "trumpCaller": self.trump_caller.name if self.trump_caller else None,
         }
 
-        if for_player:
+        if for_player and for_player in self.players:
             state["hand"] = [str(c) for c in for_player.hand]
 
         return state
 
     async def broadcast(self, message: dict) -> None:
         """Broadcast a message to all human players."""
-        for player in self.players:
+        for player in self.players + self.spectators:
             if isinstance(player, HumanPlayer):
                 await player.ws.send_json(message)
 
@@ -415,29 +423,25 @@ class GameServer:
 
     async def handle_reconnection(self, ws: web.WebSocketResponse, data: dict) -> None:
         session_id = data.get("sessionId")
-
         if not session_id or session_id not in self.sessions:
             await ws.send_json({"type": "error", "message": "Invalid session"})
             return
 
         session = self.sessions[session_id]
-
-        if session.game_code not in self.games:
+        game = self.games.get(session.game_code)
+        if not game:
             raise GameError("Game not found")
 
-        game = self.games[session.game_code]
-
-        # Update WebSocket for player
         self.player_ws[session_id] = ws
+        player_list = game.spectators if session.is_spectator else game.players
 
-        # Find and update player's WebSocket reference
-        for player in game.players:
+        for player in player_list:
             if isinstance(player, HumanPlayer) and player.name == session.name:
                 player.ws = ws
-                # Send current game state
                 await ws.send_json({
                     "type": "gameState",
-                    "state": game.get_game_state(player),
+                    "state": game.get_game_state(None if session.is_spectator else player),
+                    "isSpectator": session.is_spectator,
                     "sessionId": session_id
                 })
                 return

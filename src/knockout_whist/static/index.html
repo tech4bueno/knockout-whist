@@ -125,8 +125,12 @@
                     <p id="trumpChooserMessage" class="text-sm text-gray-600 hidden"></p>
                 </div>
 
-                <!-- Players -->
+                <!-- Players and spectators -->
                 <div id="playersGrid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4"></div>
+                <div class="mt-4">
+                    <h3 class="font-semibold mb-2">Spectators:</h3>
+                    <div id="spectatorsContainer" class="text-sm text-gray-600"></div>
+                </div>
 
                 <!-- Current Hand -->
                 <div id="currentTrickContainer" class="border p-2 sm:p-4 rounded hidden">
@@ -312,6 +316,10 @@
                     updateGameState(data.state);
                     break;
 
+                case 'eliminated':
+                    showError('You were knocked out');
+                    break;
+
                 case 'trickComplete':
                     gameState = data.state;
                     delete gameState.lastPlayedCard;
@@ -350,10 +358,6 @@
                 
                 case 'error':
                     showError(data.message);
-                    break;
-                
-                case 'eliminated':
-                    showError('You have been eliminated!');
                     break;
                 
                 case 'playerLeft':
@@ -528,6 +532,23 @@
                     `;
                     playersGrid.appendChild(playerDiv);
                 });
+            }
+
+            // Update spectators list
+            const spectatorsContainer = document.getElementById('spectatorsContainer');
+            if (state.spectators && Array.isArray(state.spectators)) {
+                if (state.spectators.length > 0) {
+                    spectatorsContainer.textContent = 'Watching: ' + state.spectators.join(', ');
+                } else {
+                    spectatorsContainer.textContent = 'No spectators';
+                }
+            }
+
+            // If player is eliminated (becomes spectator), disable card playing
+            if (state.spectators && state.spectators.includes(playerName)) {
+                const handDiv = document.getElementById('handCards');
+                handDiv.innerHTML = '';
+                document.getElementById('playerHand').classList.add('hidden');
             }
 
             // Update current trick
