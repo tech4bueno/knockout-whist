@@ -25,6 +25,7 @@ class PlayerSession:
     name: str
     game_code: str
     session_id: str
+    is_spectator: bool = False
 
 class GameError(Exception):
     pass
