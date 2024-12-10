@@ -35,7 +35,6 @@ class Game:
     def __init__(self, code: str, on_player_eliminated=None):
         self.code = code
         self.players: List[Player] = []
-        self.on_player_eliminated = on_player_eliminated
         self.spectators: List[HumanPlayer] = []
         self.state = GameState.WAITING
         self.current_round = 7
@@ -54,6 +53,19 @@ class Game:
             return self.players[(current_idx + 1) % len(self.players)]
         except ValueError:  # Current player not found (might have been eliminated)
             return self.players[0] if self.players else None
+
+    async def move_to_spectator(self, player: Player) -> None:
+        """Move a player to spectator status and notify them."""
+        if player in self.players:
+            self.players.remove(player)
+            if isinstance(player, HumanPlayer):
+                self.spectators.append(player)
+                await player.ws.send_json({"type": "eliminated"})
+                await player.ws.send_json({
+                    "type": "gameState",
+                    "state": self.get_game_state(),
+                    "isSpectator": True
+                })
 
     def calculate_required_decks(self) -> int:
         """Calculate how many decks are needed for the current round."""
@@ -185,10 +197,10 @@ class Game:
     async def handle_trump_selection(self, player: Player, suit: str) -> None:
         """Handle a player's trump suit selection."""
         if self.state != GameState.CALLING_TRUMPS:
-            raise GameError("Not in trump selection phase")
+            raise GameError("Not time to call trumps")
 
         if player != self.trump_caller:
-            raise GameError("Not your turn to choose trump")
+            raise GameError("Not your turn to call trumps")
 
         if suit not in "♠♥♦♣":
             raise GameError("Invalid suit")
@@ -235,12 +247,7 @@ class Game:
         eliminated_players = [p for p in self.players if p.tricks_won == 0]
 
         for player in eliminated_players:
-            self.players.remove(player)
-            if isinstance(player, HumanPlayer):
-                self.spectators.append(player)
-                if self.on_player_eliminated:
-                    self.on_player_eliminated(self.code, player.name)
-                await player.ws.send_json({"type": "eliminated"})
+            await self.move_to_spectator(player)
 
         if len(self.players) <= 1 or self.current_round <= 1:
             self.state = GameState.FINISHED
@@ -254,13 +261,12 @@ class Game:
                 )
             return
 
-        self.current_round -= 1
         max_tricks = max(p.tricks_won for p in self.players)
         potential_choosers = [p for p in self.players if p.tricks_won == max_tricks]
         self.trump_caller = random.choice(potential_choosers)
-        self.trump_suit = None
 
-        # Set current player for next round
+        self.current_round -= 1
+        self.trump_suit = None
         self.current_player = self.trump_caller
         self.trick_starter = self.trump_caller
 
@@ -361,12 +367,6 @@ class GameServer:
         self.player_ws: Dict[str, web.WebSocketResponse] = {}
         self.MAX_PLAYERS = 21
 
-    def handle_player_elimination(self, game_code: str, player_name: str) -> None:
-        """Update a player's session when they're eliminated"""
-        for session in self.sessions.values():
-            if session.game_code == game_code and session.name == player_name:
-                session.is_spectator = True
-
     def generate_session_id(self) -> str:
         return secrets.token_urlsafe(32)
 
@@ -434,7 +434,7 @@ class GameServer:
 
     async def handle_create_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = self.generate_game_code()
-        game = Game(code, on_player_eliminated=self.handle_player_elimination)
+        game = Game(code)
         self.games[code] = game
 
         player = HumanPlayer(ws, data["name"], [])
@@ -463,15 +463,26 @@ class GameServer:
             raise GameError("Game not found")
 
         self.player_ws[session_id] = ws
-        player_list = game.spectators if session.is_spectator else game.players
 
-        for player in player_list:
+        # Try to find the player in both players and spectators lists
+        for player in game.players:
             if isinstance(player, HumanPlayer) and player.name == session.name:
                 player.ws = ws
                 await ws.send_json({
                     "type": "gameState",
-                    "state": game.get_game_state(None if session.is_spectator else player),
-                    "isSpectator": session.is_spectator,
+                    "state": game.get_game_state(player),
+                    "isSpectator": False,
+                    "sessionId": session_id
+                })
+                return
+
+        for spectator in game.spectators:
+            if isinstance(spectator, HumanPlayer) and spectator.name == session.name:
+                spectator.ws = ws
+                await ws.send_json({
+                    "type": "gameState",
+                    "state": game.get_game_state(None),
+                    "isSpectator": True,
                     "sessionId": session_id
                 })
                 return

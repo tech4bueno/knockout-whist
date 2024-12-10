@@ -4,6 +4,7 @@ import logging
 import os
 
 from aiohttp import web
+from aiohttp.client_exceptions import ClientConnectionResetError
 
 from ..server.game_server import GameServer
 
@@ -36,7 +37,7 @@ class CombinedServer:
         except Exception as e:
             raise
             logging.error("Error: %s", str(e))
-        except ConnectionResetError as e:
+        except ClientConnectionResetError as e:
             logging.error("ClientConnectionResetError: %s", str(e))
         finally:
             logging.debug("WebSocket connection closed")
