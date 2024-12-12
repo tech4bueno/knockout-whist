@@ -7,27 +7,6 @@
     <script src="alpine.min.js" defer></script>
     <script src="tailwind.js"></script>
     <style>
-        @keyframes errorAnnouncement {
-            0% { opacity: 0; transform: translateY(-20px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes cardPlay {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
-        @keyframes trickComplete {
-            0% { background-color: transparent; }
-            100% { background-color: rgba(59, 130, 246, 0.1); }
-        }
-
-        @keyframes winnerAnnouncement {
-            0% { opacity: 0; transform: translateY(-20px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-
         .card-size {
             width: 4.5rem;
             height: 6rem;
@@ -451,13 +430,11 @@
                         this.gameState = data.state;
                     }
 
-                    // Handle session ID updates for relevant messages
                     if (['gameCreated', 'gameState', 'playerJoined', 'joined'].includes(data.type) && data.sessionId) {
                         this.sessionId = data.sessionId;
                         localStorage.setItem('sessionId', this.sessionId);
                     }
 
-                    // Handle hand updates for relevant messages
                     if (['gameCreated', 'gameState', 'playerJoined', 'joined', 'roundStart'].includes(data.type)) {
                         this.hand = data.state?.hand || [];
                     }
