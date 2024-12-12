@@ -285,7 +285,6 @@ class Game:
         card = Card.from_string(card_str)
         self.validate_play(player, card)
 
-        # Play the card
         for i, c in enumerate(player.hand):
             if c.suit == card.suit and c.rank == card.rank:
                 player.hand.pop(i)
@@ -539,5 +538,3 @@ class GameServer:
             raise GameError("Need at least 2 players")
         await game.start_trump_selection()
 
-    async def handle_choose_trump(self, game: Game, player: Player, suit: str) -> None:
-        await game.handle_trump_selection(player, suit)
