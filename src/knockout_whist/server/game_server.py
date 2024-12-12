@@ -459,7 +459,8 @@ class GameServer:
         session = self.sessions[session_id]
         game = self.games.get(session.game_code)
         if not game:
-            raise GameError("Game not found")
+            await ws.send_json({"type": "error", "message": "Game not found"})
+            return
 
         self.player_ws[session_id] = ws
 
@@ -491,14 +492,17 @@ class GameServer:
     async def handle_join_game(self, ws: web.WebSocketResponse, data: dict) -> None:
         code = data["code"]
         if code not in self.games:
-            raise GameError("Game not found")
+            await ws.send_json({"type": "error", "message": "Game not found"})
+            return
 
         game = self.games[code]
 
         if game.state != GameState.WAITING:
-            raise GameError("Game already started")
+            await ws.send_json({"type": "error", "message": "Game already started"})
+            return
         if len(game.players) >= self.MAX_PLAYERS:
-            raise GameError("Game full")
+            await ws.send_json({"type": "error", "message": "Game full"})
+            return
 
         player = HumanPlayer(ws, data["name"], [])
         session_id = self.create_session(data["name"], code)

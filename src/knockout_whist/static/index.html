@@ -402,78 +402,68 @@
                         return;
                     }
 
-                    switch (data.type) {
-                        case 'gameCreated':
-                        case 'gameState':
-                        case 'playerJoined':
-                        case 'joined':
-                            this.gameState = data.state;
-                            this.hand = data.state?.hand || [];
-                            if (data.sessionId) {
-                                this.sessionId = data.sessionId;
-                                localStorage.setItem('sessionId', this.sessionId);
+                    // Common state updates that happen for specific message types
+                    const specialCaseHandlers = {
+                        cardPlayed: (data, state) => {
+                            if (data.player === state.playerName) {
+                                state.hand = state.hand.filter(card => card !== data.card);
                             }
-                            break;
-                        
-                        case 'cardPlayed':
-                            if (data.player === this.playerName) {
-                                this.hand = this.hand.filter(card => card !== data.card);
+                            state.gameState.currentPlayer = data.nextPlayer;
+                            state.gameState.lastPlayedCard = data.card;
+                            state.gameState.lastPlayer = data.player;
+                        },
+
+                        trickComplete: (data, state) => {
+                            delete state.gameState.lastPlayedCard;
+                            delete state.gameState.lastPlayer;
+                        },
+
+                        trickWinner: (data, state) => {
+                            state.gameState.currentPlayer = data.nextPlayer;
+                            state.showTrickWinner(data.winner);
+                        },
+
+                        roundEnd: (data, state) => {
+                            if (data.trumpCaller === state.playerName) {
+                                state.showTrumpDialog = true;
                             }
-                            this.gameState = data.state;
-                            this.gameState.currentPlayer = data.nextPlayer;
-                            this.gameState.lastPlayedCard = data.card;
-                            this.gameState.lastPlayer = data.player;
-                            break;
+                        },
 
-                        case 'eliminated':
-                            this.showError('You were knocked out');
-                            break;
+                        roundStart: (data, state) => {
+                            state.hand = data.state.hand || [];
+                            state.showTrumpDialog = false;
+                        },
 
-                        case 'trickComplete':
-                            this.gameState = data.state;
-                            delete this.gameState.lastPlayedCard;
-                            delete this.gameState.lastPlayer;
-                            break;
+                        eliminated: (data, state) => {
+                            state.showError('You were knocked out');
+                        },
 
-                        case 'trickWinner':
-                            this.gameState = data.state;
-                            this.gameState.currentPlayer = data.nextPlayer;
-                            this.showTrickWinner(data.winner);
-                            break;
+                        error: (data, state) => {
+                            state.showError(data.message);
+                        },
 
-                        case 'nextTrick':
-                            this.gameState = data.state;
-                            break;
-                        
-                        case 'roundEnd':
-                            this.gameState = data.state;
-                            if (data.trumpCaller === this.playerName) {
-                                this.showTrumpDialog = true;
-                            }
-                            break;
-                        
-                        case 'roundStart':
-                            this.gameState = data.state;
-                            this.hand = data.state.hand || [];
-                            this.showTrumpDialog = false;
-                            break;
-                        
-                        case 'error':
-                            this.showError(data.message);
-                            break;
-                        
-                        case 'playerLeft':
-                            this.gameState = data.state;
-                            break;
-                        
-                        case 'gameOver':
-                            this.gameState = data.state;
-                            this.showError(`Game Over! Winner: ${data.winner}`);
-                            break;
+                        gameOver: (data, state) => {
+                            state.showError(`Game Over! Winner: ${data.winner}`);
+                        }
+                    };
 
-                        case 'playAgainSuccess':
-                            this.gameState = data.state;
-                            break;
+                    if (data.state) {
+                        this.gameState = data.state;
+                    }
+
+                    // Handle session ID updates for relevant messages
+                    if (['gameCreated', 'gameState', 'playerJoined', 'joined'].includes(data.type) && data.sessionId) {
+                        this.sessionId = data.sessionId;
+                        localStorage.setItem('sessionId', this.sessionId);
+                    }
+
+                    // Handle hand updates for relevant messages
+                    if (['gameCreated', 'gameState', 'playerJoined', 'joined', 'roundStart'].includes(data.type)) {
+                        this.hand = data.state?.hand || [];
+                    }
+
+                    if (data.type in specialCaseHandlers) {
+                        specialCaseHandlers[data.type](data, this);
                     }
                 }
             }
