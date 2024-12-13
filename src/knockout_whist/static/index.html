@@ -90,14 +90,17 @@
                     <template x-for="player in gameState?.players" :key="player.name">
                         <div :class="`p-2 rounded ${gameState.currentPlayer === player.name ? 'bg-blue-100' : 'bg-gray-100'}`">
                             <p class="font-semibold" x-text="player.name"></p>
-                            <p>Tricks: <span x-text="player.trickCount"></span></p>
+                            <p> Tricks: 
+                                <template x-for="i in player.trickCount" :key="i">
+                                    <span>🃏</span>
+                                </template>
+                            </p>
                         </div>
                     </template>
                 </div>
 
                 <!-- Spectators -->
                 <div class="mt-4">
-                    <h3 class="font-semibold mb-2">Spectators:</h3>
                     <div class="text-sm text-gray-600" x-text="getSpectatorsText()"></div>
                 </div>
 
@@ -364,7 +367,7 @@
 
                 getSpectatorsText() {
                     if (!this.gameState?.spectators || this.gameState.spectators.length === 0) {
-                        return 'No spectators';
+                        return '';
                     }
                     return 'Watching: ' + this.gameState.spectators.join(', ');
                 },
