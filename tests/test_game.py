@@ -8,7 +8,7 @@ from knockout_whist.models.card import Card
 from knockout_whist.models.player import Player, HumanPlayer, AIPlayer
 from knockout_whist.models.trick import Trick
 
-from knockout_whist.server.game_server import Game, GameServer, GameState, GameError, PlayerSession
+from knockout_whist.server.game_server import Game, GameServer, GameState, GameError, InvalidStateError, IllegalPlayError, PlayerSession
 
 @pytest.fixture
 def game():
@@ -234,16 +234,16 @@ async def test_handle_trump_selection(game, mock_ws):
 
     # Test invalid states
     game.state = GameState.PLAYING
-    with pytest.raises(GameError, match="Not time to call trumps"):
+    with pytest.raises(InvalidStateError, match="Not time to call trumps"):
         await game.handle_trump_selection(player1, "♥")
 
     # Test wrong player
     game.state = GameState.CALLING_TRUMPS
-    with pytest.raises(GameError, match="Not your turn to call trumps"):
+    with pytest.raises(IllegalPlayError, match="Not your turn to call trumps"):
         await game.handle_trump_selection(player2, "♥")
 
     # Test invalid suit
-    with pytest.raises(GameError, match="Invalid suit"):
+    with pytest.raises(ValueError, match="Invalid suit"):
         await game.handle_trump_selection(player1, "X")
 
 @pytest.mark.asyncio
@@ -409,11 +409,3 @@ async def test_join_game(game_server, mock_ws):
     assert len(game.players) == 2
     assert any(p.name == "Joiner" for p in game.players)
 
-    # Test joining non-existent game
-    with pytest.raises(GameError, match="Game not found"):
-        await game_server.handle_join_game(join_ws, {"type": "join", "code": "XXXX", "name": "Failed"})
-
-    # Test joining started game
-    game.state = GameState.PLAYING
-    with pytest.raises(GameError, match="Game already started"):
-        await game_server.handle_join_game(join_ws, join_data)

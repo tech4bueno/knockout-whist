@@ -74,7 +74,7 @@
             <div class="p-3 sm:p-6 border-b">
                 <h2 class="text-lg sm:text-xl font-bold">
                     Game: <span x-text="gameState?.code"></span> - 
-                    Round <span x-text="gameState?.currentRound"></span>
+                    Round of <span x-text="gameState?.currentRound"></span>
                 </h2>
             </div>
             <div class="p-3 sm:p-6 space-y-4">
@@ -104,9 +104,9 @@
                     <div class="text-sm text-gray-600" x-text="getSpectatorsText()"></div>
                 </div>
 
-                <!-- Current Hand -->
+                <!-- Table -->
                 <div class="border p-2 sm:p-4 rounded" x-show="gameState?.currentTrick?.length > 0">
-                    <h3 class="font-semibold mb-2">Current Hand:</h3>
+                    <h3 class="font-semibold mb-2">Table:</h3>
                     <div class="flex flex-wrap justify-center card-container">
                         <template x-if="gameState?.currentTrick">
                             <template x-for="[player, card] in gameState.currentTrick" :key="player + card">
@@ -135,11 +135,13 @@
                                 :class="[
                                     'card-size flex items-center justify-center border rounded',
                                     getCardColor(card),
-                                    !isCardPlayable(card) ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 transition-transform cursor-pointer'
+                                    (gameState?.currentPlayer !== playerName || !isCardPlayable(card)) 
+                                        ? 'opacity-50 cursor-not-allowed' 
+                                        : 'hover:scale-110 transition-transform cursor-pointer'
                                 ]"
                                 x-text="card"
                                 @click="playCard(card)"
-                                :disabled="!isCardPlayable(card) || gameState.currentPlayer !== playerName"
+                                :disabled="gameState?.currentPlayer !== playerName || !isCardPlayable(card)"
                             ></button>
                         </template>
                     </div>

@@ -28,8 +28,16 @@ class PlayerSession:
     is_spectator: bool = False
 
 class GameError(Exception):
+    """Base class for game-related exceptions."""
     pass
 
+class IllegalPlayError(GameError):
+    """Raised when a player attempts an illegal play."""
+    pass
+
+class InvalidStateError(GameError):
+    """Raised when an action is attempted in the wrong game state."""
+    pass
 
 class Game:
     def __init__(self, code: str, on_player_eliminated=None):
@@ -197,13 +205,13 @@ class Game:
     async def handle_trump_selection(self, player: Player, suit: str) -> None:
         """Handle a player's trump suit selection."""
         if self.state != GameState.CALLING_TRUMPS:
-            raise GameError("Not time to call trumps")
+            raise InvalidStateError("Not time to call trumps")
 
         if player != self.trump_caller:
-            raise GameError("Not your turn to call trumps")
+            raise IllegalPlayError("Not your turn to call trumps")
 
         if suit not in "♠♥♦♣":
-            raise GameError("Invalid suit")
+            raise ValueError("Invalid suit")
 
         self.trump_suit = suit
         await self.start_round()
@@ -313,23 +321,23 @@ class Game:
     def validate_play(self, player: Player, card: Card) -> None:
         """Prevent illegal plays."""
         if self.state != GameState.PLAYING:
-            raise GameError("Not time to play")
+            raise InvalidStateError("Not time to play")
 
         if player != self.current_player:
-            raise GameError("Not your turn")
+            raise IllegalPlayError("Not your turn")
 
         if any(p == player for p, _ in self.current_trick.plays):
-            raise GameError("Already played this round")
+            raise IllegalPlayError("Already played this round")
 
         if not any(c.suit == card.suit and c.rank == card.rank for c in player.hand):
-            raise GameError("Card not in hand")
+            raise IllegalPlayError("Card not in hand")
 
         if self.current_trick.plays and player.hand:
             if (
                 any(c.suit == self.current_trick.led_suit for c in player.hand)
                 and card.suit != self.current_trick.led_suit
             ):
-                raise GameError("Must follow suit")
+                raise IllegalPlayError("Must follow suit")
 
     def get_game_state(self, for_player: Optional[Player] = None) -> dict:
         """Get the current game state, optionally including player-specific information."""
